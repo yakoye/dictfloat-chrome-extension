@@ -12,6 +12,7 @@
     selectedId: null,
     settings: { selectionMode: 'bubble', compactMode: true, fontSize: 12, panelWidth: 380, showPhonetic: true, theme: 'system', onlineLookup: true },
     entries: [],
+    dictionaries: [],
     history: [],
     position: null,
     online: { query: '', status: 'idle', data: null, error: '' },
@@ -23,8 +24,10 @@
   init();
 
   async function init() {
-    const data = await storage.get(['dictFloatEntries', 'dictFloatSettings', 'dictFloatHistory', 'dictFloatPanelPosition']);
+    const data = await storage.get(['dictFloatEntries', 'dictFloatDictionaries', 'dictFloatSettings', 'dictFloatHistory', 'dictFloatPanelPosition']);
     state.entries = Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : [];
+    state.dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
+    state.entries = state.entries.map(entry => ({ ...entry, dictionaryId: entry.dictionaryId || inferDictionaryId(entry) }));
     state.settings = { ...state.settings, ...(data.dictFloatSettings || {}) };
     state.history = Array.isArray(data.dictFloatHistory) ? data.dictFloatHistory : [];
     state.position = data.dictFloatPanelPosition || null;
@@ -49,10 +52,11 @@
   // Keep an already-open panel in sync with changes made in the Options page.
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-    if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue : [];
+    if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue.map(entry => ({ ...entry, dictionaryId: entry.dictionaryId || inferDictionaryId(entry) })) : [];
+    if (changes.dictFloatDictionaries) state.dictionaries = normalizeDictionaries(changes.dictFloatDictionaries.newValue);
     if (changes.dictFloatHistory) state.history = Array.isArray(changes.dictFloatHistory.newValue) ? changes.dictFloatHistory.newValue : [];
     if (changes.dictFloatSettings) state.settings = { ...state.settings, ...(changes.dictFloatSettings.newValue || {}) };
-    if (state.root?.isConnected && (changes.dictFloatEntries || changes.dictFloatSettings || changes.dictFloatHistory)) render();
+    if (state.root?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatSettings || changes.dictFloatHistory)) render();
   });
 
   function ensureRoot() {
@@ -263,6 +267,8 @@
     const item = el('article', 'dictfloat-result-item');
     item.append(el('div', 'dictfloat-result-title', entry.term));
     if (entry.chinese) item.append(el('div', 'dictfloat-result-preview', entry.chinese));
+    const dictionary = dictionaryFor(entry.dictionaryId);
+    if (dictionary) item.append(el('div', 'dictfloat-result-source', dictionary.name));
     item.addEventListener('click', () => { state.selectedId = entry.id; addHistory(entry); renderContentOnly(); });
     return item;
   }
@@ -276,7 +282,8 @@
     if (entry.chinese) box.append(el('div','dictfloat-cn', entry.chinese));
     box.append(el('div','dictfloat-definition', entry.definition || 'No definition yet.'));
     if (entry.tags?.length) { const tags = el('div','dictfloat-tags'); entry.tags.forEach(t => tags.append(el('span','dictfloat-tag',t))); box.append(tags); }
-    const meta = [entry.category, entry.source].filter(Boolean).join(' · '); if (meta) box.append(el('div','dictfloat-meta',meta));
+    const dictionary = dictionaryFor(entry.dictionaryId);
+    const meta = [dictionary?.name, entry.category, entry.source].filter(Boolean).join(' · '); if (meta) box.append(el('div','dictfloat-meta',meta));
     const divider = el('div','dictfloat-divider'); box.append(divider);
     const actions = el('div','dictfloat-footer');
     const back = el('button','', '← Results'); back.addEventListener('click', () => { state.selectedId = null; renderContentOnly(); });
@@ -286,10 +293,18 @@
   }
 
   function fillAddForm(box, editing) {
-    // Preserve the just-looked-up text so building a personal glossary is one step.
-    const entry = editing || state.draftEntry || { term: state.query.trim(), aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary' };
-    box.append(el('div','dictfloat-meta', editing ? 'Edit local entry' : 'Add to My Glossary'));
+    const defaultDictionaryId = defaultWritableDictionaryId();
+    const entry = editing || state.draftEntry || { term: state.query.trim(), aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary', dictionaryId: defaultDictionaryId };
+    box.append(el('div','dictfloat-meta', editing ? 'Edit local entry' : 'Add to a local glossary'));
     const form = el('form','dictfloat-add-form');
+    const dictionaryLabel = el('label', 'full'); dictionaryLabel.textContent = 'Glossary';
+    const dictionarySelect = document.createElement('select'); dictionarySelect.name = 'dictionaryId';
+    writableDictionaries().forEach(dictionary => {
+      const option = document.createElement('option'); option.value = dictionary.id; option.textContent = dictionary.name;
+      if (dictionary.id === (entry.dictionaryId || defaultDictionaryId)) option.selected = true;
+      dictionarySelect.append(option);
+    });
+    dictionaryLabel.append(dictionarySelect); form.append(dictionaryLabel);
     const fields = [
       ['term','Term *','text',''], ['chinese','Chinese','text',''], ['aliases','Aliases','text','comma-separated'], ['tags','Tags','text','comma-separated'], ['category','Category','text','PCIe / Firmware / English'], ['source','Source','text',''], ['definition','Definition *','textarea','']
     ];
@@ -302,7 +317,7 @@
     const cancel = el('button','', 'Cancel'); cancel.type='button'; cancel.addEventListener('click', () => { state.view='lookup'; renderContentOnly(); updateTabs(); });
     const save = el('button','', editing ? 'Save changes' : 'Save entry'); save.type='submit';
     buttons.append(cancel, el('span','grow'), save); form.append(buttons);
-    form.addEventListener('submit', async e => { e.preventDefault(); const fd = new FormData(form); const term = String(fd.get('term')||'').trim(); const definition=String(fd.get('definition')||'').trim(); if (!term || !definition) return; const value = { ...entry, id: entry.id || crypto.randomUUID(), term, chinese:String(fd.get('chinese')||'').trim(), aliases:list(fd.get('aliases')), tags:list(fd.get('tags')), category:String(fd.get('category')||'').trim(), source:String(fd.get('source')||'').trim()||'My glossary', definition, updatedAt:Date.now() }; if (editing) state.entries = state.entries.map(x=>x.id===entry.id?value:x); else state.entries.unshift(value); await saveEntries(); state.draftEntry = null; state.view='lookup'; state.query=term; state.selectedId=value.id; renderContentOnly(); updateTabs(); });
+    form.addEventListener('submit', async e => { e.preventDefault(); const fd = new FormData(form); const term = String(fd.get('term')||'').trim(); const definition=String(fd.get('definition')||'').trim(); if (!term || !definition) return; const value = { ...entry, id: entry.id || crypto.randomUUID(), dictionaryId: String(fd.get('dictionaryId') || defaultDictionaryId), term, chinese:String(fd.get('chinese')||'').trim(), aliases:list(fd.get('aliases')), tags:list(fd.get('tags')), category:String(fd.get('category')||'').trim(), source:String(fd.get('source')||'').trim()||'My glossary', definition, updatedAt:Date.now() }; if (editing) state.entries = state.entries.map(x=>x.id===entry.id?value:x); else state.entries.unshift(value); await saveEntries(); state.draftEntry = null; state.view='lookup'; state.query=term; state.selectedId=value.id; renderContentOnly(); updateTabs(); });
     box.append(form);
   }
 
@@ -347,20 +362,37 @@
   async function saveEntries() { await storage.set({ dictFloatEntries: state.entries }); }
 
   function queryEntries(raw) {
-    const q = normalize(raw); if (!q) return state.entries.filter(e=>e.favorite).concat(state.entries.filter(e=>!e.favorite)).slice(0,20);
-    return state.entries.map(entry => ({entry, score: score(entry,q)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || a.entry.term.localeCompare(b.entry.term)).map(x=>x.entry);
+    const enabledIds = new Set(state.dictionaries.filter(dictionary => dictionary.enabled !== false).map(dictionary => dictionary.id));
+    const visible = state.entries.filter(entry => enabledIds.has(entry.dictionaryId || inferDictionaryId(entry)));
+    const q = normalize(raw); if (!q) return visible.filter(e=>e.favorite).concat(visible.filter(e=>!e.favorite)).slice(0,20);
+    return visible.map(entry => ({entry, score: score(entry,q)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || a.entry.term.localeCompare(b.entry.term)).map(x=>x.entry);
   }
   function score(entry,q) {
     const term=normalize(entry.term), aliases=(entry.aliases||[]).map(normalize), chinese=normalize(entry.chinese), tags=(entry.tags||[]).map(normalize), def=normalize(entry.definition);
     if(term===q) return 100; if(aliases.includes(q)) return 95; if(term.startsWith(q)) return 82; if(aliases.some(x=>x.startsWith(q))) return 75; if(term.includes(q)) return 65; if(aliases.some(x=>x.includes(q))) return 58; if(chinese.includes(q)) return 52; if(tags.some(x=>x.includes(q))) return 42; if(def.includes(q)) return 20; return 0;
   }
+
+  function normalizeDictionaries(input) {
+    const defaults = [
+      { id: 'pcie-starter', name: 'PCIe Starter', enabled: true, builtIn: true },
+      { id: 'my-glossary', name: 'My Glossary', enabled: true, builtIn: false }
+    ];
+    const dictionaries = Array.isArray(input) ? input.filter(Boolean).map(item => ({ id: String(item.id || crypto.randomUUID()), name: String(item.name || 'Untitled glossary'), enabled: item.enabled !== false, builtIn: !!item.builtIn })) : [];
+    defaults.forEach(item => { if (!dictionaries.some(dictionary => dictionary.id === item.id)) dictionaries.push(item); });
+    return dictionaries;
+  }
+  function inferDictionaryId(entry) { return String(entry?.source || '').includes('DictFloat starter') ? 'pcie-starter' : 'my-glossary'; }
+  function dictionaryFor(id) { return state.dictionaries.find(dictionary => dictionary.id === id) || null; }
+  function writableDictionaries() { const writable = state.dictionaries.filter(dictionary => !dictionary.builtIn); return writable.length ? writable : state.dictionaries; }
+  function defaultWritableDictionaryId() { return writableDictionaries().find(dictionary => dictionary.enabled !== false)?.id || writableDictionaries()[0]?.id || 'my-glossary'; }
+
   function normalize(s) { return String(s||'').toLowerCase().replace(/[\s_\-./]+/g,' ').trim(); }
   function list(value) { return String(value||'').split(',').map(x=>x.trim()).filter(Boolean); }
   function formatCopy(e) { return `${e.term}${e.chinese ? `\n${e.chinese}` : ''}\n${e.definition}${e.aliases?.length?`\nAliases: ${e.aliases.join(', ')}`:''}`; }
 
   function onlineToDraft(data) {
     const definition = (data.definitions || []).slice(0, 3).map(item => item.definition).filter(Boolean).join('\n') || data.translation || '';
-    return { term: data.term || state.query.trim(), aliases: [], chinese: data.translation || '', definition, tags: [], category: '', source: data.providers?.join(' + ') || 'Online lookup' };
+    return { dictionaryId: defaultWritableDictionaryId(), term: data.term || state.query.trim(), aliases: [], chinese: data.translation || '', definition, tags: [], category: '', source: data.providers?.join(' + ') || 'Online lookup' };
   }
   function formatOnlineCopy(data) {
     const defs = (data.definitions || []).map(item => `${item.partOfSpeech ? `[${item.partOfSpeech}] ` : ''}${item.definition}`).join('\n');

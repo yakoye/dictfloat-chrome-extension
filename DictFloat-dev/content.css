@@ -1,16 +1,16 @@
 #dictfloat-root, #dictfloat-root * { box-sizing: border-box; }
 #dictfloat-root { all: initial; }
 #dictfloat-root { position: fixed; z-index: 2147483646; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif; color: #253147; }
-.dictfloat-panel { width: 380px; max-width: min(380px, calc(100vw - 24px)); min-height: 292px; max-height: min(560px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, .28); border-radius: 14px; background: rgba(255,255,255,.97); box-shadow: 0 18px 46px rgba(15, 23, 42, .20), 0 3px 10px rgba(15,23,42,.10); backdrop-filter: blur(16px); font-size: 12px; line-height: 1.55; }
-.dictfloat-panel.dark { background: rgba(22, 29, 43, .98); color: #e7edf7; border-color: rgba(148,163,184,.18); }
+.dictfloat-panel { width: 380px; max-width: min(380px, calc(100vw - 24px)); min-height: 292px; max-height: min(560px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, .28); border-radius: 14px; background: #ffffff; color: #253147; color-scheme: light; box-shadow: 0 18px 46px rgba(15, 23, 42, .20), 0 3px 10px rgba(15,23,42,.10); backdrop-filter: blur(16px); font-size: 12px; line-height: 1.55; }
+.dictfloat-panel.dark { background: #161d2b; color: #e7edf7; color-scheme: dark; border-color: rgba(148,163,184,.18); }
 .dictfloat-head { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px 0 11px; cursor: move; border-bottom: 1px solid rgba(148,163,184,.18); user-select: none; }
 .dictfloat-branddot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(135deg,#f9a8d4,#ec4899); box-shadow: 0 0 0 3px rgba(236,72,153,.12); }
 .dictfloat-title { font-weight: 700; letter-spacing: .1px; flex: 1; font-size: 12px; }
 .dictfloat-head button, .dictfloat-icon-btn { border: 0; background: transparent; color: inherit; width: 24px; height: 24px; border-radius: 7px; cursor: pointer; font-size: 15px; line-height: 1; }
 .dictfloat-head button:hover, .dictfloat-icon-btn:hover { background: rgba(148,163,184,.14); }
 .dictfloat-search-wrap { padding: 9px 10px 7px; border-bottom: 1px solid rgba(148,163,184,.15); }
-.dictfloat-search { display: flex; align-items: center; gap: 6px; padding: 0 9px; height: 31px; border: 1px solid rgba(148,163,184,.34); border-radius: 9px; background: rgba(248,250,252,.82); }
-.dark .dictfloat-search { background: rgba(15,23,42,.65); border-color: rgba(148,163,184,.24); }
+.dictfloat-search { display: flex; align-items: center; gap: 6px; padding: 0 9px; height: 31px; border: 1px solid rgba(148,163,184,.34); border-radius: 9px; background: #f8fafc; }
+.dark .dictfloat-search { background: #0f172a; border-color: rgba(148,163,184,.24); }
 .dictfloat-search input { appearance: none; outline: none; border: none; min-width: 0; flex: 1; background: transparent; color: inherit; font: inherit; font-size: 12px; }
 .dictfloat-search-clear { flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #94a3b8; font: inherit; font-size: 16px; line-height: 18px; cursor: pointer; }
 .dictfloat-search-clear:hover { background: rgba(148,163,184,.15); color: #475569; }
@@ -39,8 +39,8 @@
 .dictfloat-result-title { font-weight: 700; }
 .dictfloat-result-preview { margin-top: 2px; color: #728198; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dictfloat-footer { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-top: 1px solid rgba(148,163,184,.15); }
-.dictfloat-footer button { border: 1px solid rgba(148,163,184,.27); background: rgba(255,255,255,.7); color: inherit; border-radius: 7px; min-height: 25px; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; }
-.dark .dictfloat-footer button { background: rgba(15,23,42,.48); color: inherit; }
+.dictfloat-footer button { border: 1px solid rgba(148,163,184,.27); background: #ffffff; color: inherit; border-radius: 7px; min-height: 25px; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; }
+.dark .dictfloat-footer button { background: #111827; color: inherit; }
 .dictfloat-footer button:hover { border-color: #f9a8d4; background: #fff1f7; }
 .dark .dictfloat-footer button:hover { background: rgba(236,72,153,.12); }
 .dictfloat-footer .grow { flex: 1; }
@@ -66,7 +66,19 @@
 .dictfloat-online-definition { color: inherit; line-height: 1.55; }
 .dictfloat-pos { display: inline-block; min-width: 35px; margin-right: 4px; color: #8a97aa; font-size: 10px; font-style: italic; }
 .dictfloat-inline-actions { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
-.dictfloat-inline-actions button { border: 1px solid rgba(148,163,184,.27); background: rgba(255,255,255,.7); color: inherit; border-radius: 7px; min-height: 24px; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; }
-.dark .dictfloat-inline-actions button { background: rgba(15,23,42,.48); }
+.dictfloat-inline-actions button { border: 1px solid rgba(148,163,184,.27); background: #ffffff; color: inherit; border-radius: 7px; min-height: 24px; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; }
+.dark .dictfloat-inline-actions button { background: #111827; }
 .dictfloat-inline-actions button:hover { border-color: #f9a8d4; background: #fff1f7; }
 .dark .dictfloat-inline-actions button:hover { background: rgba(236,72,153,.12); }
+
+/* Forced light mode must remain fully opaque even when the webpage is dark. */
+.dictfloat-panel:not(.dark) .dictfloat-head,
+.dictfloat-panel:not(.dark) .dictfloat-search-wrap,
+.dictfloat-panel:not(.dark) .dictfloat-tabs,
+.dictfloat-panel:not(.dark) .dictfloat-content,
+.dictfloat-panel:not(.dark) .dictfloat-footer { background-color: #ffffff; }
+.dictfloat-panel:not(.dark) .dictfloat-search { background-color: #f8fafc; }
+.dictfloat-panel:not(.dark) .dictfloat-result-item:hover { background-color: #fff4f8; }
+.dictfloat-result-source { margin-top: 2px; color: #9aa7b8; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark .dictfloat-result-source { color: #8ea0b7; }
+.dictfloat-add-form select { width: 100%; border: 1px solid rgba(148,163,184,.34); border-radius: 7px; padding: 6px 7px; font: inherit; font-size: 11px; color: inherit; background: transparent; outline: none; }
