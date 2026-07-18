@@ -13,6 +13,7 @@ let dictionaries = [];
 let mdictSources = [];
 let wudaoSource = null;
 let sourceOrder = [];
+let draggedSourceKey = '';
 
 void init();
 
@@ -133,13 +134,23 @@ function renderDictionaryLibrary() {
   }
 }
 
-function makeLibraryBaseRow(index, enabled, title, kind, fileLine, stateLine, toggleHandler) {
+function makeLibraryBaseRow(index, key, enabled, title, kind, fileLine, stateLine, toggleHandler) {
   const row = document.createElement('div');
   row.className = 'dictionary-item library-source-item';
+  row.dataset.sourceKey = key;
+
+  const drag = document.createElement('span');
+  drag.className = 'source-drag-handle';
+  drag.textContent = '⠿';
+  drag.title = 'Drag to change lookup order';
+  drag.setAttribute('aria-label', 'Drag to change lookup order');
+  drag.setAttribute('role', 'button');
+  drag.draggable = true;
+
   const order = document.createElement('span');
   order.className = 'source-order-index';
   order.textContent = String(index + 1);
-  order.title = 'Lookup order';
+  order.title = `Lookup order ${index + 1}`;
   const check = document.createElement('input');
   check.type = 'checkbox';
   check.checked = enabled !== false;
@@ -165,17 +176,55 @@ function makeLibraryBaseRow(index, enabled, title, kind, fileLine, stateLine, to
   info.append(titleLine, file, state);
   const actions = document.createElement('div');
   actions.className = 'dictionary-actions library-actions';
-  row.append(order, check, info, actions);
+  row.append(drag, order, check, info, actions);
+  attachSourceDragHandlers(row, drag, key);
   return { row, actions };
 }
 
-function appendOrderActions(actions, key, index) {
-  const up = makeButton('↑', () => moveSource(key, -1));
-  const down = makeButton('↓', () => moveSource(key, 1));
-  up.title = 'Move up'; down.title = 'Move down';
-  up.disabled = index === 0;
-  down.disabled = index === sourceOrder.length - 1;
-  actions.append(up, down);
+function attachSourceDragHandlers(row, handle, key) {
+  handle.addEventListener('dragstart', (event) => {
+    draggedSourceKey = key;
+    row.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', key);
+  });
+  handle.addEventListener('dragend', () => {
+    draggedSourceKey = '';
+    document.querySelectorAll('.library-source-item').forEach((node) => node.classList.remove('is-dragging', 'drop-before', 'drop-after'));
+  });
+  row.addEventListener('dragover', (event) => {
+    const sourceKey = draggedSourceKey || event.dataTransfer.getData('text/plain');
+    if (!sourceKey || sourceKey === key) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const before = event.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+    row.classList.toggle('drop-before', before);
+    row.classList.toggle('drop-after', !before);
+  });
+  row.addEventListener('dragleave', (event) => {
+    if (!row.contains(event.relatedTarget)) row.classList.remove('drop-before', 'drop-after');
+  });
+  row.addEventListener('drop', async (event) => {
+    const sourceKey = draggedSourceKey || event.dataTransfer.getData('text/plain');
+    if (!sourceKey || sourceKey === key) return;
+    event.preventDefault();
+    const before = row.classList.contains('drop-before');
+    row.classList.remove('drop-before', 'drop-after');
+    await moveSourceByDrag(sourceKey, key, before);
+  });
+}
+
+async function moveSourceByDrag(sourceKey, targetKey, before) {
+  const next = [...sourceOrder];
+  const from = next.indexOf(sourceKey);
+  if (from < 0) return;
+  next.splice(from, 1);
+  const target = next.indexOf(targetKey);
+  if (target < 0) return;
+  next.splice(before ? target : target + 1, 0, sourceKey);
+  sourceOrder = normalizeSourceOrder(next);
+  await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
+  renderDictionaryLibrary();
 }
 
 function buildGlossaryLibraryRow(dictionary, index) {
@@ -186,7 +235,7 @@ function buildGlossaryLibraryRow(dictionary, index) {
     : `✎ Editable glossary · ${count} ${count === 1 ? 'entry' : 'entries'}`;
   const kind = dictionary.builtIn ? 'Built-in' : 'Glossary';
   const state = dictionary.builtIn ? 'Included with DictFloat · read-only source' : 'Editable locally · JSON / CSV export available';
-  const { row, actions } = makeLibraryBaseRow(index, dictionary.enabled, dictionary.name, kind, fileLabel, state, async (checked) => {
+  const { row, actions } = makeLibraryBaseRow(index, sourceKeyForGlossary(dictionary), dictionary.enabled, dictionary.name, kind, fileLabel, state, async (checked) => {
     dictionary.enabled = checked;
     await saveDictionaries();
     renderDictionaryLibrary();
@@ -197,7 +246,6 @@ function buildGlossaryLibraryRow(dictionary, index) {
     actions.append(makeButton('Export', () => exportGlossary(dictionary)));
     actions.append(makeButton('Remove', () => deleteDictionary(dictionary), 'delete'));
   }
-  appendOrderActions(actions, sourceKeyForGlossary(dictionary), index);
   return row;
 }
 
@@ -209,7 +257,7 @@ function buildMdictLibraryRow(source, index) {
   const state = source.status === 'ready'
     ? `Linked · on-demand lookup · ${source.cssMode === 'compact' ? 'Compact style' : 'Original CSS'}`
     : 'Reconnect required · original file was not copied into Chrome';
-  const { row, actions } = makeLibraryBaseRow(index, source.enabled, source.name, 'Linked MDX', fileLine, state, async (checked) => {
+  const { row, actions } = makeLibraryBaseRow(index, sourceKeyForMdict(source), source.enabled, source.name, 'Linked MDX', fileLine, state, async (checked) => {
     source.enabled = checked;
     await saveMdictSources();
     renderDictionaryLibrary();
@@ -225,7 +273,6 @@ function buildMdictLibraryRow(source, index) {
   }
   actions.append(makeButton('Export', () => exportMdictConfig(source)));
   actions.append(makeButton('Remove', () => removeMdictSource(source), 'delete'));
-  appendOrderActions(actions, sourceKeyForMdict(source), index);
   return row;
 }
 
@@ -233,7 +280,7 @@ function buildWudaoLibraryRow(index) {
   const names = wudaoSource.fileNames;
   const fileLine = `📦 ${names.enIndex} · ${names.enData} · ${names.zhIndex} · ${names.zhData} · ${formatSize(wudaoSource.totalSize)}`;
   const state = `${wudaoSource.recordCounts.en.toLocaleString()} English · ${wudaoSource.recordCounts.zh.toLocaleString()} Chinese · stored locally`;
-  const { row, actions } = makeLibraryBaseRow(index, wudaoSource.enabled, wudaoSource.name || 'Wudao · Offline', 'Offline pack', fileLine, state, async (checked) => {
+  const { row, actions } = makeLibraryBaseRow(index, 'wudao', wudaoSource.enabled, wudaoSource.name || 'Wudao · Offline', 'Offline pack', fileLine, state, async (checked) => {
     wudaoSource.enabled = checked;
     await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
     renderDictionaryLibrary();
@@ -243,17 +290,15 @@ function buildWudaoLibraryRow(index) {
   actions.append(makeButton('Replace', () => $('importWudaoFiles').click()));
   actions.append(makeButton('Export', exportWudaoConfig));
   actions.append(makeButton('Remove', removeWudaoPack, 'delete'));
-  appendOrderActions(actions, 'wudao', index);
   return row;
 }
 
 function buildOnlineLibraryRow(index) {
-  const { row, actions } = makeLibraryBaseRow(index, $('onlineLookup')?.checked !== false, 'Online', 'Fallback', '☁ Public dictionary and translation services', 'Only the actively queried term is sent online', async (checked) => {
+  const { row, actions } = makeLibraryBaseRow(index, 'online', $('onlineLookup')?.checked !== false, 'Online', 'Fallback', '☁ Public dictionary and translation services', 'Only the actively queried term is sent online', async (checked) => {
     $('onlineLookup').checked = checked;
     await saveSettings();
     renderDictionaryLibrary();
   });
-  appendOrderActions(actions, 'online', index);
   return row;
 }
 
@@ -373,17 +418,6 @@ function normalizeSourceOrder(input) {
   const available = knownLookupSources().map((source) => source.key);
   const requested = Array.isArray(input) ? input.map(String) : [];
   return [...requested.filter((key) => available.includes(key)), ...available.filter((key) => !requested.includes(key))];
-}
-
-
-async function moveSource(key, delta) {
-  const index = sourceOrder.indexOf(key);
-  const target = index + delta;
-  if (index < 0 || target < 0 || target >= sourceOrder.length) return;
-  [sourceOrder[index], sourceOrder[target]] = [sourceOrder[target], sourceOrder[index]];
-  await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
-  renderSourceOrder();
-  status('Lookup order saved. The first source is shown first.');
 }
 
 

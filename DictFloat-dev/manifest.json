@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Compact floating dictionary with selection lookup, online fallback, local glossaries, offline Wudao data packs, and MDX text lookup.",
   "permissions": [
     "storage",

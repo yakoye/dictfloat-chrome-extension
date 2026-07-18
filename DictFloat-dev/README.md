@@ -1,17 +1,25 @@
-# DictFloat v0.4.0 — Unified Dictionary Library
+# DictFloat v0.4.1 — Exact MDX lookup and drag ordering
 
 DictFloat is a compact Chrome floating dictionary for local glossaries, linked MDX text lookup, optional Wudao offline data, online fallback, and webpage selection lookup.
 
-## v0.4.0 / 本版重点
+## v0.4.1 / 本版重点
+
+### Exact MDX lookup / 精确 MDX 词条选择
+
+For dictionaries with `StripKey=Yes`, an input such as `physical` can share the same normalized key as entries such as `physical-`. DictFloat now ranks raw headwords before reading a definition: an exact typed headword wins, then decorated variants are used only as a fallback. This prevents the wrong nearby entry from replacing the requested word.
+
+### Drag ordering / 拖动排序
+
+Dictionary Library rows now have a small `⠿` drag handle. Drag a source above or below another source to persist the lookup and display order. The old `↑ / ↓` button clutter was removed.
 
 ### Unified Dictionary Library / 统一词典库
 
-Settings now manages every lookup source in one **Dictionary Library** instead of splitting Wudao, MDX/MDD, local glossaries, and lookup order into separate sections.
+Settings manages every lookup source in one **Dictionary Library** instead of splitting Wudao, MDX/MDD, local glossaries, and lookup order into separate sections.
 
-Each source is one row with:
+Each source has:
 
 - enable / disable checkbox
-- order number and `↑ / ↓` controls
+- drag handle and order number
 - source type
 - file/package identity
 - source-specific actions
@@ -57,7 +65,7 @@ Large MDX files are linked rather than fully copied into IndexedDB:
 When a connected folder contains a `.css` file, **Style: Original** is available:
 
 - It is scoped to the dictionary result area.
-- Standard typography, colors, indentation, numbered senses, examples, and tables are retained where safe.
+- Standard typography, colors, indentation, numbered senses, examples, tables, and safe inline typography are retained where safe.
 - Dictionary JavaScript, external imports, fonts, external URLs, fixed-position rules, and layout escape rules are blocked.
 - Switch to **Style: Compact** where an original theme is too dense for the small floating panel.
 
@@ -71,7 +79,7 @@ For the current word dictionaries:
 4. Wudao · Offline
 5. Online
 
-Move your own PCIe / GPU glossary above the general dictionaries if you want technical terms to appear first.
+Drag your own PCIe / GPU glossary above the general dictionaries if you want technical terms to appear first.
 
 ## Current MDX limits / 当前限制
 

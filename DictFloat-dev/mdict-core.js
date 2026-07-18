@@ -327,6 +327,20 @@
     return -1;
   }
 
+  function normalizedRawKey(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  }
+
+  async function nextKeyAfter(file, sourceId, index, blockIndex, itemIndex) {
+    const same = await decodeKeyBlock(file, sourceId, index, blockIndex);
+    if (itemIndex + 1 < same.length) return same[itemIndex + 1];
+    if (blockIndex + 1 < index.keyBlocks.length) {
+      const following = await decodeKeyBlock(file, sourceId, index, blockIndex + 1);
+      return following[0] || null;
+    }
+    return null;
+  }
+
   async function decodeRecordBlock(file, sourceId, index, blockIndex) {
     const cache = sourceCache(sourceId);
     const cached = lruGet(cache.recordBlocks, blockIndex);
@@ -400,28 +414,55 @@
     const normalized = normalize(query, index.lookup || {});
     const candidate = findKeyBlock(index, normalized);
     if (candidate < 0) return null;
-    let found = null;
-    let foundBlock = -1;
-    let foundAt = -1;
-    for (const blockIndex of [candidate, candidate - 1, candidate + 1].filter((value, indexValue, all) => value >= 0 && value < index.keyBlocks.length && all.indexOf(value) === indexValue)) {
+
+    // MDX StripKey dictionaries frequently contain several keys with the same
+    // normalized form, e.g. “physical” and “physical-”. The old reader used
+    // the first normalized match and could therefore show a different entry
+    // from the exact word the user typed. Inspect only metadata-compatible
+    // blocks, then rank raw keys so an exact headword always wins.
+    const compatibleBlocks = [];
+    for (let blockIndex = 0; blockIndex < index.keyBlocks.length; blockIndex += 1) {
+      const block = index.keyBlocks[blockIndex];
+      if (String(block.firstNorm || '') <= normalized && String(block.lastNorm || '') >= normalized) compatibleBlocks.push(blockIndex);
+    }
+    if (!compatibleBlocks.length) compatibleBlocks.push(candidate);
+
+    const matches = [];
+    for (const blockIndex of compatibleBlocks) {
       const keys = await decodeKeyBlock(file, sourceRecord.id, index, blockIndex);
-      const itemIndex = keys.findIndex((item) => item.norm === normalized);
-      if (itemIndex >= 0) { found = keys[itemIndex]; foundBlock = blockIndex; foundAt = itemIndex; break; }
+      keys.forEach((item, itemIndex) => {
+        if (item.norm === normalized) matches.push({ ...item, blockIndex, itemIndex });
+      });
     }
-    if (!found) return null;
-    let next = null;
-    const same = await decodeKeyBlock(file, sourceRecord.id, index, foundBlock);
-    if (foundAt + 1 < same.length) next = same[foundAt + 1];
-    else if (foundBlock + 1 < index.keyBlocks.length) {
-      const following = await decodeKeyBlock(file, sourceRecord.id, index, foundBlock + 1);
-      next = following[0] || null;
+    if (!matches.length) return null;
+
+    const exactRaw = normalizedRawKey(query);
+    const rank = (item) => {
+      const raw = normalizedRawKey(item.term);
+      if (raw === exactRaw) return 0;
+      if (raw.replace(/[._-]+$/g, '') === exactRaw) return 1;
+      if (raw.replace(/^[._-]+/g, '') === exactRaw) return 2;
+      return 10 + Math.abs(raw.length - exactRaw.length);
+    };
+    const bestRank = Math.min(...matches.map(rank));
+    const selected = matches
+      .filter((item) => rank(item) === bestRank)
+      .sort((left, right) => left.recordStart - right.recordStart)
+      .filter((item, position, all) => position === 0 || item.recordStart !== all[position - 1].recordStart)
+      .slice(0, 4);
+
+    const definitions = [];
+    for (const found of selected) {
+      const next = await nextKeyAfter(file, sourceRecord.id, index, found.blockIndex, found.itemIndex);
+      const end = next ? next.recordStart : index.recordDataSize;
+      const definition = await readDefinitionRange(file, sourceRecord.id, index, found.recordStart, end);
+      definitions.push({ term: found.term || query, definition });
     }
-    const end = next ? next.recordStart : index.recordDataSize;
-    const definition = await readDefinitionRange(file, sourceRecord.id, index, found.recordStart, end);
+    const firstDefinition = definitions[0]?.definition || '';
     return {
-      term: found.term || query,
-      phonetic: phoneticFromDefinition(definition),
-      definitions: [{ term: found.term || query, definition }],
+      term: selected[0]?.term || query,
+      phonetic: phoneticFromDefinition(firstDefinition),
+      definitions,
       sourceId: sourceRecord.id,
       stylesheet: sourceRecord.cssMode === 'safe-original' ? await readSafeStylesheet(sourceRecord) : ''
     };

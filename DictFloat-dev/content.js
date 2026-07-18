@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.0';
+  const RUNTIME_VERSION = '0.4.1';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -503,19 +503,58 @@
         appended += appendOnlineSection(box, source) ? 1 : 0;
       }
     }
-    if (!appended && query) box.append(el('div', 'dictfloat-empty', 'No result yet.'));
+    // Keep an empty result area quiet. The search field and source list already
+    // explain the action; a second generic ‘no result’ message is visual noise.
   }
 
   function appendGlossarySection(box, source, entries) {
+    // Use the queried entry as the left-side title and the glossary name as
+    // the right-side source, exactly like Wudao / Online / MDX sections.
+    // The old layout reversed these two and made a lookup for MPS read as
+    // “PCIe Starter  MPS”, which was inconsistent and visually misleading.
+    const primary = selectPrimaryGlossaryEntry(entries, state.query);
     const section = createSourceSection({
       key: source.key,
-      term: source.name,
-      detail: entries.length === 1 ? entries[0].term : `${entries.length} matches`,
-      badge: 'Local glossary',
+      term: primary?.term || state.query,
+      detail: entries.length === 1 ? formatGlossaryHeaderDetail(primary) : `${entries.length} matches`,
+      badge: source.name,
       tone: 'local'
     });
-    entries.forEach((entry) => section.body.append(resultItem(entry, { showSource: false })));
+    if (entries.length === 1 && primary) section.body.append(glossaryPreviewItem(primary));
+    else entries.forEach((entry) => section.body.append(resultItem(entry, { showSource: false })));
     box.append(section.node);
+  }
+
+  function selectPrimaryGlossaryEntry(entries, rawQuery) {
+    const query = String(rawQuery || '').trim().toLocaleLowerCase();
+    return entries.find((entry) => String(entry.term || '').trim().toLocaleLowerCase() === query) || entries[0] || null;
+  }
+
+  function formatGlossaryHeaderDetail(entry) {
+    if (!entry) return '';
+    if (entry.aliases?.length) return entry.aliases[0];
+    return entry.chinese || '';
+  }
+
+  function glossaryPreviewItem(entry) {
+    const item = el('article', 'dictfloat-glossary-preview');
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.title = 'Open and edit this glossary entry';
+    const summary = el('div', 'dictfloat-result-summary');
+    if (entry.aliases?.length) summary.append(el('span', 'dictfloat-result-aliases', entry.aliases.join(' · ')));
+    if (entry.chinese) {
+      if (entry.aliases?.length) summary.append(document.createTextNode(' '));
+      summary.append(el('span', 'dictfloat-result-chinese', entry.chinese));
+    }
+    if (summary.childNodes.length) item.append(summary);
+    if (entry.definition) item.append(el('div', 'dictfloat-glossary-preview-definition', entry.definition));
+    const open = () => showEntry(entry);
+    item.addEventListener('click', open);
+    item.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+    });
+    return item;
   }
 
   function createSourceSection({ key, term, detail = '', badge = '', tone = '' }) {
@@ -791,8 +830,15 @@
     doc.querySelectorAll('*').forEach((node) => {
       [...node.attributes].forEach((attr) => {
         const name = attr.name.toLowerCase();
-        const value = String(attr.value || '').trim().toLowerCase();
-        if (name.startsWith('on') || name === 'style' || name === 'src' || name === 'href' || value.startsWith('javascript:')) node.removeAttribute(attr.name);
+        const rawValue = String(attr.value || '').trim();
+        const value = rawValue.toLowerCase();
+        if (name === 'style') {
+          const safeStyle = safeMdictInlineStyle(rawValue);
+          if (safeStyle) node.setAttribute('style', safeStyle);
+          else node.removeAttribute(attr.name);
+          return;
+        }
+        if (name.startsWith('on') || name === 'src' || name === 'href' || value.startsWith('javascript:')) node.removeAttribute(attr.name);
       });
     });
     const fragment = document.createDocumentFragment();
@@ -800,6 +846,30 @@
     output.append(fragment);
     if (!output.textContent.trim()) output.textContent = String(raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     return output;
+  }
+
+  function safeMdictInlineStyle(raw) {
+    const allowed = new Set([
+      'color', 'background-color', 'font-weight', 'font-style', 'font-size',
+      'line-height', 'text-decoration', 'text-align', 'vertical-align',
+      'white-space', 'margin', 'margin-left', 'margin-right', 'margin-top',
+      'margin-bottom', 'padding', 'padding-left', 'padding-right', 'padding-top',
+      'padding-bottom', 'border', 'border-left', 'border-right', 'border-top',
+      'border-bottom', 'border-color', 'border-style', 'border-width',
+      'display', 'float', 'clear', 'list-style', 'list-style-type', 'text-indent'
+    ]);
+    const output = [];
+    for (const declaration of String(raw || '').split(';')) {
+      const separator = declaration.indexOf(':');
+      if (separator < 1) continue;
+      const property = declaration.slice(0, separator).trim().toLowerCase();
+      const value = declaration.slice(separator + 1).trim();
+      if (!allowed.has(property) || !value) continue;
+      if (/url\s*\(|expression\s*\(|@import|javascript:/i.test(value)) continue;
+      if (property === 'display' && /^(?:none|contents)$/i.test(value)) continue;
+      output.push(`${property}:${value}`);
+    }
+    return output.join(';');
   }
 
   function scopeMdictCss(raw, scope) {

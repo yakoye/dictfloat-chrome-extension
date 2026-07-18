@@ -119,6 +119,7 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
 /* Unified Dictionary Library */
 .library-card { position:relative; }
 .library-heading { align-items:flex-start; }
+.library-heading .hint { max-width:560px; }
 .library-add-wrap { position:relative; flex:0 0 auto; }
 .source-menu { position:absolute; z-index:20; top:calc(100% + 7px); right:0; width:220px; padding:5px; display:grid; gap:2px; border:1px solid #d9e1ec; border-radius:9px; background:#fff; box-shadow:0 12px 28px rgba(27,39,58,.15); }
 .source-menu[hidden] { display:none; }
@@ -129,12 +130,32 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
 .library-source-item { align-items:flex-start; padding:10px; }
 .library-source-item > .source-order-index { margin-top:1px; }
 .library-source-item > input[type="checkbox"] { margin-top:3px; }
+.source-drag-handle {
+  width:18px;
+  min-width:18px;
+  min-height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-top:-1px;
+  border-radius:6px;
+  color:#97a5b7;
+  cursor:grab;
+  font-size:17px;
+  line-height:1;
+  user-select:none;
+}
+.source-drag-handle:hover { background:#f1f4f8; color:#586a82; }
+.source-drag-handle:active { cursor:grabbing; }
+.library-source-item.is-dragging { opacity:.45; }
+.library-source-item.drop-before { box-shadow:inset 0 2px 0 #ec4899; }
+.library-source-item.drop-after { box-shadow:inset 0 -2px 0 #ec4899; }
 .library-title-line { display:flex; align-items:center; gap:7px; min-width:0; }
 .library-title-line .dictionary-name { flex:0 1 auto; }
 .library-kind { display:inline-flex; align-items:center; min-height:18px; padding:1px 6px; border:1px solid #dce3ee; border-radius:999px; background:#f5f7fb; color:#62728b; font-size:10px; font-weight:700; white-space:nowrap; }
 .library-file-link { color:#5e718d; }
 .library-file-link::first-letter { color:#496480; }
-.library-actions { justify-content:flex-end; flex-wrap:wrap; max-width:270px; }
+.library-actions { justify-content:flex-end; flex-wrap:wrap; max-width:250px; }
 .library-progress { display:flex; align-items:center; gap:10px; margin-top:11px; }
 .library-progress .hint { margin:0; }
 .library-progress #cancelMdictIndex { flex:0 0 auto; }
@@ -153,4 +174,6 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
   .source-menu button:hover,.source-menu-file:hover { background:#1c2a3f; }
   .library-kind { border-color:#3b4b64; background:#1d2a3e; color:#b7c4d6; }
   .library-file-link { color:#b3c2d9; }
+  .source-drag-handle { color:#8191a8; }
+  .source-drag-handle:hover { background:#25344b; color:#d8e4f4; }
 }

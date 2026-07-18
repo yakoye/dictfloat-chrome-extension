@@ -578,11 +578,35 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-source-section.local .dictfloat-result-item { padding: 7px 6px; }
 .dictfloat-source-section.local .dictfloat-result-item:hover { background:#f6f8fb; }
 .dark .dictfloat-source-section.local .dictfloat-result-item:hover { background:#202d41; }
+/* A single glossary hit uses the same source header as every other dictionary.
+   Its preview intentionally omits the repeated term and leaves the row calm. */
+.dictfloat-glossary-preview {
+  display:block;
+  margin:0;
+  padding:6px 5px 4px;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  outline:0;
+}
+.dictfloat-glossary-preview:hover,
+.dictfloat-glossary-preview:focus-visible { background:#f7f9fc; }
+.dictfloat-glossary-preview-definition {
+  margin-top:6px;
+  color:inherit;
+  font-size:11px;
+  line-height:1.52;
+  word-break:break-word;
+}
+.dark .dictfloat-glossary-preview:hover,
+.dark .dictfloat-glossary-preview:focus-visible { background:#202d41; }
 .dictfloat-source-section .dictfloat-inline-actions { justify-content:flex-end; padding:7px 4px 3px; }
 
 
-/* Imported MDX text is kept inside the DictFloat shadow root. Original
-   dictionary CSS and JavaScript are deliberately not applied. */
+/* Imported MDX text stays inside the DictFloat shadow root. Safe original CSS
+   and a small safe subset of inline typography may apply; scripts never do. */
 .dictfloat-mdx-html { color:inherit; font-size:11px; line-height:1.52; overflow-wrap:anywhere; }
 .dictfloat-mdx-html * { max-width:100%; box-sizing:border-box; }
 .dictfloat-mdx-html p, .dictfloat-mdx-html div { margin:0 0 6px; }
