@@ -1,5 +1,9 @@
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.3.2';
+const CONTENT_RUNTIME_VERSION = '0.3.4';
+const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
+const WUDAO_STORE_NAME = 'packs';
+const WUDAO_ACTIVE_PACK_ID = 'active';
+const wudaoIndexCache = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
@@ -29,6 +33,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
+  }
+  if (message?.type === 'DICTFLOAT_WUDAO_LOOKUP') {
+    lookupWudao(String(message.query || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+  if (message?.type === 'DICTFLOAT_WUDAO_RESET') {
+    wudaoIndexCache.clear();
+    sendResponse({ ok: true });
+    return;
   }
 });
 
@@ -75,7 +90,8 @@ async function migrateStorage() {
     'dictFloatEntries',
     'dictFloatSettings',
     'dictFloatDictionaries',
-    'dictFloatMdictSources'
+    'dictFloatMdictSources',
+    'dictFloatWudaoSource'
   ]);
   const settings = { ...defaultSettings(), ...(existing.dictFloatSettings || {}) };
   if (settings.theme === 'light' && !existing.dictFloatSettings?.themeLockedByUser) settings.theme = 'system';
@@ -88,11 +104,13 @@ async function migrateStorage() {
     updatedAt: entry.updatedAt || Date.now()
   }));
   const mdictSources = Array.isArray(existing.dictFloatMdictSources) ? existing.dictFloatMdictSources : [];
+  const wudaoSource = normalizeWudaoSource(existing.dictFloatWudaoSource);
   await chrome.storage.local.set({
     dictFloatSettings: settings,
     dictFloatDictionaries: dictionaries,
     dictFloatEntries: entries,
-    dictFloatMdictSources: mdictSources
+    dictFloatMdictSources: mdictSources,
+    dictFloatWudaoSource: wudaoSource
   });
 }
 
@@ -207,4 +225,203 @@ function seedEntries() {
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MRRS', aliases: ['Max Read Request Size', 'Maximum Read Request Size'], chinese: '最大读请求大小', definition: 'The maximum amount of data requested by a PCIe Memory Read Request.', tags: ['PCIe', 'TLP'], related: ['MPS', 'Completion Timeout'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'Completion Timeout', aliases: ['Cpl Timeout', 'Completion Time-out'], chinese: '完成超时', definition: 'The maximum allowed time to receive a Completion for a non-posted PCIe request before timeout handling is triggered.', tags: ['PCIe', 'Completion', 'Error Handling'], related: ['RCB', 'MRRS'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now }
   ];
+}
+
+
+// ---------------------------------------------------------------------------
+// Optional Wudao data pack
+// The pack is intentionally user-imported and stored in IndexedDB, rather
+// than bundled in DictFloat. A Wudao pack contains en.ind / en.z / zh.ind /
+// zh.z. The *.ind file maps a word to an offset in the matching zlib stream.
+// ---------------------------------------------------------------------------
+
+function normalizeWudaoSource(source) {
+  const input = source && typeof source === 'object' ? source : {};
+  return {
+    installed: !!input.installed,
+    enabled: input.enabled !== false && !!input.installed,
+    importedAt: Number(input.importedAt || 0),
+    totalSize: Number(input.totalSize || 0),
+    recordCounts: {
+      en: Number(input.recordCounts?.en || 0),
+      zh: Number(input.recordCounts?.zh || 0)
+    },
+    fileNames: {
+      enIndex: String(input.fileNames?.enIndex || 'en.ind'),
+      enData: String(input.fileNames?.enData || 'en.z'),
+      zhIndex: String(input.fileNames?.zhIndex || 'zh.ind'),
+      zhData: String(input.fileNames?.zhData || 'zh.z')
+    },
+    source: 'Wudao-dict local data pack'
+  };
+}
+
+async function lookupWudao(rawQuery) {
+  const query = String(rawQuery || '').trim().replace(/\s+/g, ' ');
+  if (!query || query.length > 160) return null;
+  const source = normalizeWudaoSource((await chrome.storage.local.get('dictFloatWudaoSource')).dictFloatWudaoSource);
+  if (!source.installed || !source.enabled) return null;
+
+  const direction = /[\u3400-\u9fff]/.test(query) ? 'zh' : 'en';
+  const normalizedQuery = direction === 'en' ? query.toLowerCase() : query;
+  const pack = await readWudaoPack();
+  if (!pack?.files) throw new Error('The Wudao data pack is unavailable. Re-import the four files in Settings.');
+
+  const indexKey = direction === 'en' ? 'enIndex' : 'zhIndex';
+  const dataKey = direction === 'en' ? 'enData' : 'zhData';
+  const index = await getWudaoIndex(indexKey, pack.files[indexKey], pack.files[dataKey]?.size || 0);
+  const range = index.get(normalizedQuery);
+  if (!range) return null;
+
+  const dataBlob = pack.files[dataKey];
+  if (!(dataBlob instanceof Blob)) throw new Error('The Wudao data file is unavailable. Re-import the pack in Settings.');
+  const compressed = new Uint8Array(await dataBlob.slice(range.start, range.end).arrayBuffer());
+  if (!compressed.byteLength) return null;
+  const raw = await inflateZlib(compressed);
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(raw);
+  return direction === 'en' ? parseWudaoEnglish(text, query) : parseWudaoChinese(text, query);
+}
+
+async function getWudaoIndex(key, indexBlob, dataSize) {
+  if (wudaoIndexCache.has(key)) return wudaoIndexCache.get(key);
+  if (!(indexBlob instanceof Blob)) throw new Error('The Wudao index is unavailable. Re-import the pack in Settings.');
+  const text = await indexBlob.text();
+  const rows = text.split(/\r?\n/).filter(Boolean);
+  const map = new Map();
+  const parsed = [];
+  for (const row of rows) {
+    const separator = row.lastIndexOf('|');
+    if (separator <= 0) continue;
+    const word = row.slice(0, separator);
+    const start = Number(row.slice(separator + 1));
+    if (!word || !Number.isFinite(start) || start < 0) continue;
+    parsed.push([word, start]);
+  }
+  for (let index = 0; index < parsed.length; index += 1) {
+    const [word, start] = parsed[index];
+    const end = index + 1 < parsed.length ? parsed[index + 1][1] : dataSize;
+    if (end > start) map.set(word, { start, end });
+  }
+  wudaoIndexCache.set(key, map);
+  return map;
+}
+
+async function inflateZlib(bytes) {
+  const formats = ['deflate', 'deflate-raw'];
+  let lastError = null;
+  for (const format of formats) {
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(`Unable to decompress this Wudao record: ${String(lastError?.message || lastError || 'unknown error')}`);
+}
+
+function parseWudaoEnglish(text, fallbackTerm) {
+  const fields = String(text || '').split('|');
+  const paraphrase = safeJson(fields[5], []);
+  const sentences = safeJson(fields[8], []);
+  return normalizeWudaoResult({
+    term: fields[0] || fallbackTerm,
+    phonetic: [fields[2], fields[3], fields[4]].filter(Boolean).join(' · '),
+    definitions: flattenWudaoValue(paraphrase, 8),
+    examples: flattenWudaoValue(sentences, 4),
+    direction: 'en-zh'
+  });
+}
+
+function parseWudaoChinese(text, fallbackTerm) {
+  const fields = String(text || '').split('|');
+  const paraphrase = safeJson(fields[3], []);
+  const desc = safeJson(fields[4], []);
+  const sentences = safeJson(fields[5], []);
+  return normalizeWudaoResult({
+    term: fields[0] || fallbackTerm,
+    phonetic: fields[2] || '',
+    definitions: flattenWudaoValue(paraphrase, 8).concat(flattenWudaoValue(desc, 5)).slice(0, 10),
+    examples: flattenWudaoValue(sentences, 4),
+    direction: 'zh-en'
+  });
+}
+
+function normalizeWudaoResult(value) {
+  const definitions = uniqueStrings(value.definitions || []);
+  const examples = uniqueStrings(value.examples || []);
+  return {
+    term: String(value.term || '').trim(),
+    phonetic: String(value.phonetic || '').trim(),
+    definitions,
+    examples,
+    direction: value.direction || '',
+    provider: 'Wudao offline dictionary'
+  };
+}
+
+function safeJson(value, fallback) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch (_) { return value; }
+}
+
+function flattenWudaoValue(value, limit = 8) {
+  const lines = [];
+  const visit = (current, prefix = '') => {
+    if (lines.length >= limit || current == null) return;
+    if (typeof current === 'string' || typeof current === 'number') {
+      const text = String(current).replace(/\s+/g, ' ').trim();
+      if (text && text !== 'null' && text !== 'undefined') lines.push(prefix ? `${prefix} ${text}`.trim() : text);
+      return;
+    }
+    if (Array.isArray(current)) {
+      current.forEach((item) => visit(item, prefix));
+      return;
+    }
+    if (typeof current === 'object') {
+      Object.entries(current).forEach(([key, item]) => {
+        const label = /^[a-z.]{1,16}$/i.test(key) ? key : '';
+        visit(item, label || prefix);
+      });
+    }
+  };
+  visit(value);
+  return uniqueStrings(lines).slice(0, limit);
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  return values.map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function openWudaoDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WUDAO_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(WUDAO_STORE_NAME)) db.createObjectStore(WUDAO_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Unable to open Wudao local storage'));
+  });
+}
+
+async function readWudaoPack() {
+  const db = await openWudaoDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(WUDAO_STORE_NAME, 'readonly').objectStore(WUDAO_STORE_NAME).get(WUDAO_ACTIVE_PACK_ID);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error('Unable to read Wudao local storage'));
+    });
+  } finally {
+    db.close();
+  }
 }

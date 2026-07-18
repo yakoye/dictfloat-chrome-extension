@@ -87,3 +87,9 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
   .beta-chip { border-color:#733153; background:#351a2b; color:#f9a8d4; }
   code { background:#26344a; }
 }
+
+
+#wudaoCard .dictionary-item { align-items:flex-start; }
+.wudao-status { margin-top:4px; color:#687991; font-size:11px; line-height:1.45; }
+.wudao-ready { color:#16835b; font-weight:650; }
+.dark .wudao-ready { color:#75d5a9; }

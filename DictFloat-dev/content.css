@@ -411,3 +411,15 @@ button { -webkit-appearance: none; appearance: none; }
   .dictfloat-add-form { grid-template-columns:1fr; }
   .dictfloat-add-form label.full { grid-column:auto; }
 }
+
+/* Optional Wudao offline data pack */
+.dictfloat-wudao-section { margin-top:11px; padding-top:10px; border-top:1px solid #edf1f5; }
+.dark .dictfloat-wudao-section { border-top-color:#2a374b; }
+.dictfloat-wudao-label { margin-bottom:6px; color:#c34d83; font-size:10px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
+.dark .dictfloat-wudao-label { color:#f59ac5; }
+.dictfloat-wudao-definitions { margin-top:8px; display:grid; gap:5px; }
+.dictfloat-wudao-definition { color:inherit; font-size:12px; line-height:1.52; white-space:pre-wrap; }
+.dictfloat-wudao-examples { margin-top:8px; display:grid; gap:4px; color:#6d7f96; }
+.dark .dictfloat-wudao-examples { color:#aab8cb; }
+.dictfloat-wudao-example { font-size:11px; line-height:1.45; }
+.dictfloat-wudao-status { padding:7px 0; color:#8b98aa; font-size:11px; }

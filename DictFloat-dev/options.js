@@ -1,5 +1,8 @@
 const $ = (id) => document.getElementById(id);
 const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true };
+const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
+const WUDAO_STORE_NAME = 'packs';
+const WUDAO_ACTIVE_PACK_ID = 'active';
 const defaultDictionaries = () => [
   { id: 'pcie-starter', name: 'PCIe Starter', enabled: true, builtIn: true, createdAt: 0 },
   { id: 'my-glossary', name: 'My Glossary', enabled: true, builtIn: false, createdAt: Date.now() }
@@ -8,6 +11,7 @@ const defaultDictionaries = () => [
 let entries = [];
 let dictionaries = [];
 let mdictSources = [];
+let wudaoSource = null;
 
 void init();
 
@@ -16,12 +20,14 @@ async function init() {
     'dictFloatSettings',
     'dictFloatEntries',
     'dictFloatDictionaries',
-    'dictFloatMdictSources'
+    'dictFloatMdictSources',
+    'dictFloatWudaoSource'
   ]);
   const settings = { ...defaults, ...(data.dictFloatSettings || {}) };
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
   mdictSources = Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources.map(normalizeMdictSource) : [];
+  wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
 
   for (const key of Object.keys(defaults)) {
     const element = $(key);
@@ -34,6 +40,8 @@ async function init() {
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('addDictionary').addEventListener('click', addDictionary);
   $('importMdictFiles').addEventListener('change', importMdictFiles);
+  $('importWudaoFiles').addEventListener('change', importWudaoFiles);
+  $('removeWudaoPack').addEventListener('click', removeWudaoPack);
   $('exportJson').addEventListener('click', exportJson);
   $('exportCsv').addEventListener('click', exportCsv);
   $('importFile').addEventListener('change', importFile);
@@ -41,10 +49,12 @@ async function init() {
 
   renderDictionaries();
   renderMdictSources();
+  renderWudaoSource();
   await chrome.storage.local.set({
     dictFloatDictionaries: dictionaries,
     dictFloatEntries: entries,
-    dictFloatMdictSources: mdictSources
+    dictFloatMdictSources: mdictSources,
+    dictFloatWudaoSource: wudaoSource
   });
 }
 
@@ -483,3 +493,183 @@ function formatSize(size) {
   return `${value >= 10 || power === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[power]}`;
 }
 function clamp(value, min, max, fallback) { return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback; }
+
+
+// ---------------------------------------------------------------------------
+// Optional Wudao offline pack. The original data is user-selected; this
+// extension intentionally does not ship or redistribute the data files.
+// ---------------------------------------------------------------------------
+
+function normalizeWudaoSource(source) {
+  const input = source && typeof source === 'object' ? source : {};
+  return {
+    installed: !!input.installed,
+    enabled: input.enabled !== false && !!input.installed,
+    importedAt: Number(input.importedAt || 0),
+    totalSize: Number(input.totalSize || 0),
+    recordCounts: {
+      en: Number(input.recordCounts?.en || 0),
+      zh: Number(input.recordCounts?.zh || 0)
+    },
+    fileNames: {
+      enIndex: String(input.fileNames?.enIndex || 'en.ind'),
+      enData: String(input.fileNames?.enData || 'en.z'),
+      zhIndex: String(input.fileNames?.zhIndex || 'zh.ind'),
+      zhData: String(input.fileNames?.zhData || 'zh.z')
+    },
+    source: 'Wudao-dict local data pack'
+  };
+}
+
+async function importWudaoFiles(event) {
+  const files = [...(event.target.files || [])];
+  event.target.value = '';
+  if (!files.length) return;
+  const selected = classifyWudaoFiles(files);
+  const missing = Object.entries(selected).filter(([, file]) => !file).map(([key]) => wudaoLabel(key));
+  if (missing.length) {
+    status(`Choose all four Wudao files together. Missing: ${missing.join(', ')}.`, true);
+    return;
+  }
+  try {
+    const [enCount, zhCount] = await Promise.all([validateWudaoIndex(selected.enIndex), validateWudaoIndex(selected.zhIndex)]);
+    const totalSize = Object.values(selected).reduce((sum, file) => sum + file.size, 0);
+    const pack = {
+      id: WUDAO_ACTIVE_PACK_ID,
+      importedAt: Date.now(),
+      files: selected
+    };
+    await writeWudaoPack(pack);
+    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
+    wudaoSource = normalizeWudaoSource({
+      installed: true,
+      enabled: true,
+      importedAt: pack.importedAt,
+      totalSize,
+      recordCounts: { en: enCount, zh: zhCount },
+      fileNames: Object.fromEntries(Object.entries(selected).map(([key, file]) => [key, file.name]))
+    });
+    await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
+    renderWudaoSource();
+    status(`Wudao offline pack imported: ${enCount.toLocaleString()} English and ${zhCount.toLocaleString()} Chinese index entries.`);
+  } catch (error) {
+    status(`Wudao import failed: ${error.message}`, true);
+  }
+}
+
+function classifyWudaoFiles(files) {
+  const result = { enIndex: null, enData: null, zhIndex: null, zhData: null };
+  files.forEach((file) => {
+    const name = file.name.toLowerCase();
+    if (name === 'en.ind') result.enIndex = file;
+    else if (name === 'en.z') result.enData = file;
+    else if (name === 'zh.ind') result.zhIndex = file;
+    else if (name === 'zh.z') result.zhData = file;
+  });
+  return result;
+}
+
+function wudaoLabel(key) {
+  return ({ enIndex: 'en.ind', enData: 'en.z', zhIndex: 'zh.ind', zhData: 'zh.z' })[key] || key;
+}
+
+async function validateWudaoIndex(file) {
+  if (file.size < 32) throw new Error(`${file.name} is too small to be a Wudao index.`);
+  const text = await file.text();
+  const rows = text.split(/\r?\n/).filter(Boolean);
+  const valid = rows.filter((row) => /^.+\|\d+$/.test(row)).length;
+  if (valid < 100) throw new Error(`${file.name} does not look like a Wudao index file.`);
+  return valid;
+}
+
+function renderWudaoSource() {
+  const list = $('wudaoSourceStatus');
+  if (!list) return;
+  list.textContent = '';
+  const row = document.createElement('div');
+  row.className = 'dictionary-item';
+  if (!wudaoSource?.installed) {
+    const info = document.createElement('div');
+    info.className = 'dictionary-info';
+    info.append(Object.assign(document.createElement('div'), { className: 'dictionary-name', textContent: 'No local Wudao pack' }));
+    info.append(Object.assign(document.createElement('div'), { className: 'dictionary-meta', textContent: 'Import the four data files to enable offline English–Chinese and Chinese–English lookup.' }));
+    row.append(info);
+    list.append(row);
+    $('removeWudaoPack').disabled = true;
+    return;
+  }
+  $('removeWudaoPack').disabled = false;
+  const enabled = document.createElement('input');
+  enabled.type = 'checkbox';
+  enabled.checked = wudaoSource.enabled !== false;
+  enabled.title = 'Use this local Wudao pack during lookup';
+  enabled.addEventListener('change', async () => {
+    wudaoSource.enabled = enabled.checked;
+    await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
+    renderWudaoSource();
+    status(`Wudao offline pack ${wudaoSource.enabled ? 'enabled' : 'disabled'}.`);
+  });
+  const info = document.createElement('div');
+  info.className = 'dictionary-info';
+  const name = document.createElement('div');
+  name.className = 'dictionary-name';
+  name.textContent = 'Wudao offline dictionary';
+  const meta = document.createElement('div');
+  meta.className = 'dictionary-meta';
+  meta.textContent = `${wudaoSource.recordCounts.en.toLocaleString()} English · ${wudaoSource.recordCounts.zh.toLocaleString()} Chinese · ${formatSize(wudaoSource.totalSize)} stored locally`;
+  const ready = document.createElement('div');
+  ready.className = 'wudao-status wudao-ready';
+  ready.textContent = wudaoSource.enabled ? 'Ready for offline lookup' : 'Stored locally · disabled';
+  info.append(name, meta, ready);
+  row.append(enabled, info);
+  list.append(row);
+}
+
+async function removeWudaoPack() {
+  if (!wudaoSource?.installed) return;
+  if (!confirm('Remove the local Wudao data pack from DictFloat? Your original files outside Chrome are not changed.')) return;
+  try {
+    await deleteWudaoPack();
+    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
+    wudaoSource = normalizeWudaoSource(null);
+    await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
+    renderWudaoSource();
+    status('Wudao offline pack removed.');
+  } catch (error) {
+    status(`Unable to remove Wudao pack: ${error.message}`, true);
+  }
+}
+
+function openWudaoDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WUDAO_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(WUDAO_STORE_NAME)) db.createObjectStore(WUDAO_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Unable to open local dictionary storage.'));
+  });
+}
+
+async function writeWudaoPack(pack) {
+  const db = await openWudaoDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const request = db.transaction(WUDAO_STORE_NAME, 'readwrite').objectStore(WUDAO_STORE_NAME).put(pack, WUDAO_ACTIVE_PACK_ID);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Unable to store local Wudao data.'));
+    });
+  } finally { db.close(); }
+}
+
+async function deleteWudaoPack() {
+  const db = await openWudaoDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const request = db.transaction(WUDAO_STORE_NAME, 'readwrite').objectStore(WUDAO_STORE_NAME).delete(WUDAO_ACTIVE_PACK_ID);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Unable to delete local Wudao data.'));
+    });
+  } finally { db.close(); }
+}

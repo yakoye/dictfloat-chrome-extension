@@ -1,11 +1,19 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.2';
-  // One page may temporarily keep an older content-script instance after an
-  // extension refresh. Dispose it first, then remove every legacy host.
+  const RUNTIME_VERSION = '0.3.4';
+  // -------------------------------------------------------------------------
+  // Single-window ownership guard
+  //
+  // Chrome can leave older content-script listeners alive after an extension
+  // reload. A JS global is not enough to fence those listeners because they
+  // may live in another isolated world. The document dataset is shared by all
+  // of them, so only the newest token may react to messages or mouse events.
+  // -------------------------------------------------------------------------
   try { window.__DICTFLOAT_INSTANCE__?.destroy?.(); } catch (_) {}
-  window.__DICTFLOAT_LOADED__ = true;
+  const INSTANCE_TOKEN = `${RUNTIME_VERSION}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+  const ROOT_SELECTOR = '[data-dictfloat-root="true"], [data-dictfloat="true"], #dictfloat-root';
   document.documentElement.dataset.dictfloatRuntimeVersion = RUNTIME_VERSION;
-  document.querySelectorAll('[data-dictfloat-root="true"], [data-dictfloat="true"], #dictfloat-root').forEach((node) => node.remove());
+  document.documentElement.dataset.dictfloatInstanceToken = INSTANCE_TOKEN;
+  window.__DICTFLOAT_LOADED__ = true;
 
   const storage = chrome.storage.local;
   const DEFAULT_SETTINGS = {
@@ -21,8 +29,11 @@
     mount: null,
     panel: null,
     bubble: null,
+    visible: false,
     minimized: false,
     query: '',
+    returnState: null,
+    formReturnState: null,
     view: 'lookup',
     selectedId: null,
     editingId: null,
@@ -32,6 +43,8 @@
     history: [],
     position: null,
     online: { query: '', status: 'idle', data: null, error: '' },
+    wudao: { query: '', status: 'idle', data: null, error: '' },
+    wudaoSource: { installed: false, enabled: false },
     draftEntry: null,
     cssPromise: null,
     destroyed: false,
@@ -39,8 +52,16 @@
     themeListener: null
   };
 
-  const instance = { version: RUNTIME_VERSION, destroy: destroyInstance };
+  const instance = { version: RUNTIME_VERSION, token: INSTANCE_TOKEN, destroy: destroyInstance };
   window.__DICTFLOAT_INSTANCE__ = instance;
+
+  function isCurrentInstance() {
+    return !state.destroyed && document.documentElement.dataset.dictfloatInstanceToken === INSTANCE_TOKEN;
+  }
+
+  function isOwnedHost(node) {
+    return !!node && node.getAttribute?.('data-dictfloat-owner') === INSTANCE_TOKEN;
+  }
 
   void init();
 
@@ -50,14 +71,16 @@
       'dictFloatDictionaries',
       'dictFloatSettings',
       'dictFloatHistory',
-      'dictFloatPanelPosition'
+      'dictFloatPanelPosition',
+      'dictFloatWudaoSource'
     ]);
-    if (state.destroyed) return;
+    if (!isCurrentInstance()) return;
     state.entries = Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries.map(normalizeEntry) : [];
     state.dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
     state.settings = { ...DEFAULT_SETTINGS, ...(data.dictFloatSettings || {}) };
     state.history = Array.isArray(data.dictFloatHistory) ? data.dictFloatHistory : [];
     state.position = data.dictFloatPanelPosition || null;
+    state.wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
 
     document.addEventListener('mouseup', handleSelection, true);
     document.addEventListener('keydown', handleGlobalKeys, true);
@@ -73,13 +96,13 @@
   }
 
   function onRuntimeMessage(message, _sender, sendResponse) {
-    if (state.destroyed) return;
+    if (!isCurrentInstance()) return;
     if (message?.type === 'DICTFLOAT_PING') {
       sendResponse({ version: RUNTIME_VERSION });
       return;
     }
     if (message?.type === 'DICTFLOAT_REPAIR') {
-      if (state.host?.isConnected) removeForeignRoots(state.host);
+      if (state.host?.isConnected) pruneDuplicateRoots();
       return;
     }
     if (message?.type === 'DICTFLOAT_TOGGLE') void toggle();
@@ -87,13 +110,14 @@
   }
 
   function onStorageChanged(changes, areaName) {
-    if (state.destroyed || areaName !== 'local') return;
+    if (!isCurrentInstance() || areaName !== 'local') return;
     if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue.map(normalizeEntry) : [];
     if (changes.dictFloatDictionaries) state.dictionaries = normalizeDictionaries(changes.dictFloatDictionaries.newValue);
     if (changes.dictFloatHistory) state.history = Array.isArray(changes.dictFloatHistory.newValue) ? changes.dictFloatHistory.newValue : [];
     if (changes.dictFloatSettings) state.settings = { ...DEFAULT_SETTINGS, ...(changes.dictFloatSettings.newValue || {}) };
     if (changes.dictFloatPanelPosition) state.position = changes.dictFloatPanelPosition.newValue || null;
-    if (state.host?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatHistory || changes.dictFloatSettings || changes.dictFloatPanelPosition)) render();
+    if (changes.dictFloatWudaoSource) state.wudaoSource = normalizeWudaoSource(changes.dictFloatWudaoSource.newValue);
+    if (state.host?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatHistory || changes.dictFloatSettings || changes.dictFloatPanelPosition || changes.dictFloatWudaoSource)) render();
   }
 
   function destroyInstance() {
@@ -105,10 +129,11 @@
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     chrome.storage.onChanged.removeListener(onStorageChanged);
     removeBubble();
-    state.host?.remove();
+    if (isOwnedHost(state.host)) state.host.remove();
     state.host = null;
     state.mount = null;
     state.panel = null;
+    state.visible = false;
     if (window.__DICTFLOAT_INSTANCE__ === instance) delete window.__DICTFLOAT_INSTANCE__;
   }
 
@@ -124,74 +149,113 @@
   }
 
   async function ensureRoot(renderOnCreate = false) {
-    if (state.destroyed) return;
-    if (state.host?.isConnected && state.mount) {
-      removeForeignRoots(state.host);
-      return;
+    if (!isCurrentInstance()) return false;
+
+    // Reuse only our own root. Anything else is stale and is removed before
+    // the asynchronous stylesheet fetch can create a race.
+    if (!isOwnedHost(state.host) || !state.host?.isConnected || !state.mount) {
+      document.querySelectorAll(ROOT_SELECTOR).forEach((node) => {
+        if (!isOwnedHost(node)) node.remove();
+      });
+      let host = document.querySelector('#dictfloat-root');
+      if (host && !isOwnedHost(host)) {
+        host.remove();
+        host = null;
+      }
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'dictfloat-root';
+        host.setAttribute('data-dictfloat', 'true');
+        host.setAttribute('data-dictfloat-root', 'true');
+        host.setAttribute('data-dictfloat-owner', INSTANCE_TOKEN);
+        // Append synchronously. This is the single, document-wide claim.
+        document.documentElement.append(host);
+      }
+      state.host = host;
+      state.mount = host.shadowRoot || host.attachShadow({ mode: 'open' });
+      if (!state.mount.querySelector('style[data-dictfloat-style="true"]')) {
+        const style = document.createElement('style');
+        style.setAttribute('data-dictfloat-style', 'true');
+        state.mount.append(style);
+        try {
+          const css = await ensureStyles();
+          if (!isCurrentInstance() || !isOwnedHost(host)) return false;
+          style.textContent = css;
+        } catch (error) {
+          style.textContent = ':host{all:initial}';
+          console.warn('DictFloat styles could not be loaded.', error);
+        }
+      }
     }
-    removeForeignRoots();
-    const css = await ensureStyles();
-    const host = document.createElement('div');
-    host.id = 'dictfloat-root';
-    host.setAttribute('data-dictfloat', 'true');
-    host.setAttribute('data-dictfloat-root', 'true');
-    const mount = host.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent = css;
-    mount.append(style);
-    document.documentElement.append(host);
-    state.host = host;
-    state.mount = mount;
+    if (!isCurrentInstance() || !isOwnedHost(state.host)) return false;
+    pruneDuplicateRoots();
     if (renderOnCreate) render();
+    return true;
   }
 
-  function removeForeignRoots(keep = null) {
-    document.querySelectorAll('[data-dictfloat-root="true"], [data-dictfloat="true"], #dictfloat-root').forEach((node) => {
-      if (node !== keep) node.remove();
+  function pruneDuplicateRoots() {
+    if (!isCurrentInstance()) return;
+    document.querySelectorAll(ROOT_SELECTOR).forEach((node) => {
+      if (node !== state.host) node.remove();
+    });
+  }
+
+  function clearMount() {
+    if (!state.mount) return;
+    [...state.mount.children].forEach((node) => {
+      if (node.tagName !== 'STYLE') node.remove();
     });
   }
 
   async function toggle() {
-    if (state.destroyed) return;
-    const panelWasOpen = !!state.panel?.isConnected && !state.minimized;
+    if (!isCurrentInstance()) return;
     await ensureRoot(false);
-    if (panelWasOpen) {
+    if (!isCurrentInstance()) return;
+    if (state.visible && !state.minimized) {
       close();
       return;
     }
+    state.visible = true;
     state.minimized = false;
     render();
     focusSearch();
   }
 
   async function openAndLookup(query) {
-    if (state.destroyed) return;
-    await ensureRoot(true);
+    if (!isCurrentInstance()) return;
+    await ensureRoot(false);
+    if (!isCurrentInstance()) return;
+    state.visible = true;
     state.minimized = false;
     lookup(query);
   }
 
   async function open() {
-    if (state.destroyed) return;
-    await ensureRoot(true);
+    if (!isCurrentInstance()) return;
+    await ensureRoot(false);
+    if (!isCurrentInstance()) return;
+    state.visible = true;
     state.minimized = false;
     render();
     focusSearch();
   }
 
   function close() {
+    if (!isCurrentInstance()) return;
     removeBubble();
-    state.host?.remove();
-    state.host = null;
-    state.mount = null;
+    state.visible = false;
+    state.minimized = false;
     state.panel = null;
+    clearMount();
   }
 
   function render() {
-    if (state.destroyed || !state.mount || !state.host?.isConnected) return;
-    removeForeignRoots(state.host);
+    if (!isCurrentInstance() || !state.mount || !isOwnedHost(state.host)) return;
+    pruneDuplicateRoots();
+    clearMount();
+    state.panel = null;
+    if (!state.visible) return;
     const pos = getPosition();
-    [...state.mount.querySelectorAll(':scope > :not(style)')].forEach((node) => node.remove());
     if (state.minimized) {
       renderMini(pos);
       return;
@@ -271,6 +335,7 @@
       state.selectedId = null;
       state.editingId = null;
       state.online = { query: '', status: 'idle', data: null, error: '' };
+      state.wudao = { query: '', status: 'idle', data: null, error: '' };
       clear.hidden = !input.value;
       renderContentOnly();
     });
@@ -298,6 +363,7 @@
     state.selectedId = null;
     state.editingId = null;
     state.online = { query: '', status: 'idle', data: null, error: '' };
+      state.wudao = { query: '', status: 'idle', data: null, error: '' };
     const input = state.mount?.querySelector('.dictfloat-search input');
     if (input) input.value = '';
     renderContentOnly();
@@ -313,8 +379,8 @@
         state.view = id;
         state.selectedId = null;
         state.editingId = null;
-        state.draftEntry = id === 'add' ? null : state.draftEntry;
-        if (id !== 'add') state.draftEntry = null;
+        state.returnState = null;
+        state.draftEntry = null;
         renderContentOnly();
       });
       wrap.append(button);
@@ -343,15 +409,19 @@
   }
 
   function renderContentOnly() {
-    if (state.destroyed || !state.host?.isConnected) return;
-    removeForeignRoots(state.host);
+    // Only replace the one existing content region. This keeps the cursor in
+    // the search field while typing and still cannot create a second panel.
+    if (!isCurrentInstance() || !state.visible || state.minimized) return;
+    pruneDuplicateRoots();
     const box = state.mount?.querySelector('#dictfloat-content');
     if (!box) {
       render();
       return;
     }
+    const keepScroll = box.scrollTop;
     fillContent(box);
     updateTabs();
+    if (state.view === 'lookup' || state.view === 'history') box.scrollTop = keepScroll;
   }
 
   function updateTabs() {
@@ -383,6 +453,7 @@
       const entry = state.entries.find((item) => item.id === state.selectedId);
       if (entry) {
         fillEntry(box, entry);
+        appendWudaoSection(box);
         appendOnlineSection(box);
         return;
       }
@@ -395,6 +466,7 @@
     }
 
     queryEntries(state.query).forEach((entry) => box.append(resultItem(entry)));
+    appendWudaoSection(box);
     appendOnlineSection(box);
   }
 
@@ -426,6 +498,16 @@
   }
 
   function showEntry(entry) {
+    // Preserve the exact list the user came from, including History and its
+    // scroll position. Return restores this state in the same panel.
+    if (!state.selectedId) {
+      const contentNode = state.mount?.querySelector('#dictfloat-content');
+      state.returnState = {
+        view: state.view === 'history' ? 'history' : 'lookup',
+        query: state.query,
+        scrollTop: Number(contentNode?.scrollTop || 0)
+      };
+    }
     state.view = 'lookup';
     state.editingId = null;
     state.selectedId = entry.id;
@@ -433,6 +515,21 @@
     state.draftEntry = null;
     void addHistory(entry);
     render();
+  }
+
+  function returnToPreviousView() {
+    const previous = state.returnState || { view: 'lookup', query: '', scrollTop: 0 };
+    state.view = previous.view;
+    state.query = previous.query;
+    state.selectedId = null;
+    state.editingId = null;
+    state.draftEntry = null;
+    state.returnState = null;
+    render();
+    requestAnimationFrame(() => {
+      const contentNode = state.mount?.querySelector('#dictfloat-content');
+      if (contentNode) contentNode.scrollTop = previous.scrollTop || 0;
+    });
   }
 
   function fillEntry(box, entry) {
@@ -482,13 +579,7 @@
     const back = el('button', '', '← Return');
     back.type = 'button';
     back.title = 'Return to results';
-    back.addEventListener('click', () => {
-      state.selectedId = null;
-      state.editingId = null;
-      state.view = 'lookup';
-      // Rebuild the single active panel so a stale shell cannot remain below it.
-      render();
-    });
+    back.addEventListener('click', returnToPreviousView);
     const copy = el('button', '', 'Copy');
     copy.type = 'button';
     copy.addEventListener('click', () => copyText(formatCopy(entry), copy));
@@ -500,11 +591,62 @@
   }
 
   function openEdit(entry) {
+    state.formReturnState = { selectedId: entry.id, query: state.query, returnState: state.returnState };
     state.view = 'lookup';
     state.selectedId = null;
     state.editingId = entry.id;
     state.draftEntry = null;
     renderContentOnly();
+  }
+
+  function appendWudaoSection(box) {
+    const lookup = state.wudao;
+    if (!state.query.trim() || !state.wudaoSource.installed || !state.wudaoSource.enabled || lookup.query !== state.query.trim()) return;
+    const section = el('section', 'dictfloat-wudao-section');
+    if (lookup.status === 'loading') {
+      section.append(el('div', 'dictfloat-wudao-status', 'Searching Wudao offline…'));
+      box.append(section);
+      return;
+    }
+    if (lookup.status === 'error') {
+      const status = el('div', 'dictfloat-wudao-status', 'Wudao offline lookup is unavailable.');
+      status.title = lookup.error || '';
+      section.append(status);
+      box.append(section);
+      return;
+    }
+    if (lookup.status !== 'done' || !lookup.data) return;
+    const data = lookup.data;
+    section.append(el('div', 'dictfloat-wudao-label', 'Wudao · Offline'));
+    section.append(el('div', 'dictfloat-term', data.term || state.query));
+    if (data.phonetic) section.append(el('div', 'dictfloat-subtitle', data.phonetic));
+    if (data.definitions?.length) {
+      const definitions = el('div', 'dictfloat-wudao-definitions');
+      data.definitions.slice(0, 8).forEach((definition) => definitions.append(el('div', 'dictfloat-wudao-definition', definition)));
+      section.append(definitions);
+    }
+    if (data.examples?.length) {
+      const examples = el('div', 'dictfloat-wudao-examples');
+      data.examples.slice(0, 2).forEach((example) => examples.append(el('div', 'dictfloat-wudao-example', example)));
+      section.append(examples);
+    }
+    if (!data.definitions?.length) section.append(el('div', 'dictfloat-wudao-status', 'No offline definition was returned for this query.'));
+    const actions = el('div', 'dictfloat-inline-actions');
+    const save = el('button', '', '+ Save');
+    save.type = 'button';
+    save.addEventListener('click', () => {
+      state.draftEntry = wudaoToDraft(data);
+      state.editingId = null;
+      state.selectedId = null;
+      state.view = 'add';
+      renderContentOnly();
+    });
+    const copy = el('button', '', 'Copy');
+    copy.type = 'button';
+    copy.addEventListener('click', () => copyText(formatWudaoCopy(data), copy));
+    actions.append(save, copy);
+    section.append(actions);
+    box.append(section);
   }
 
   function appendOnlineSection(box) {
@@ -641,8 +783,14 @@
     cancel.addEventListener('click', () => {
       state.draftEntry = null;
       state.editingId = null;
-      state.view = editing ? 'lookup' : 'lookup';
-      if (editing) state.selectedId = editing.id;
+      state.view = 'lookup';
+      if (editing) {
+        const back = state.formReturnState || { selectedId: editing.id, query: editing.term, returnState: state.returnState };
+        state.selectedId = back.selectedId;
+        state.query = back.query;
+        state.returnState = back.returnState || null;
+        state.formReturnState = null;
+      }
       renderContentOnly();
     });
     const save = el('button', '', editing ? 'Save changes' : 'Save entry');
@@ -695,6 +843,7 @@
       await saveEntries();
       state.draftEntry = null;
       state.editingId = null;
+      state.formReturnState = null;
       state.view = 'lookup';
       state.query = term;
       state.selectedId = value.id;
@@ -715,15 +864,35 @@
     state.selectedId = null;
     state.editingId = null;
     state.draftEntry = null;
+    state.returnState = null;
+    state.formReturnState = null;
     state.online = { query, status: state.settings.onlineLookup && query ? 'loading' : 'idle', data: null, error: '' };
+    state.wudao = { query, status: state.wudaoSource.installed && state.wudaoSource.enabled && query ? 'loading' : 'idle', data: null, error: '' };
     const best = queryEntries(query)[0];
     if (best) {
+      // A direct lookup opens the best entry, but Return must still show the
+      // matching result list rather than a blank / stacked old panel.
+      state.returnState = { view: 'lookup', query, scrollTop: 0 };
       state.selectedId = best.id;
       void addHistory(best);
     }
     render();
+    if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query);
     if (state.settings.onlineLookup && query) void lookupOnline(query);
     focusSearch(true);
+  }
+
+  async function lookupWudao(query) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_LOOKUP', query });
+      if (state.query !== query) return;
+      if (!response?.ok) throw new Error(response?.error || 'Wudao lookup failed');
+      state.wudao = { query, status: 'done', data: response.data || null, error: '' };
+    } catch (error) {
+      if (state.query !== query) return;
+      state.wudao = { query, status: 'error', data: null, error: String(error?.message || error) };
+    }
+    renderContentOnly();
   }
 
   async function lookupOnline(query) {
@@ -778,6 +947,16 @@
     if (tags.some((item) => item.includes(query))) return 42;
     if (definition.includes(query)) return 20;
     return 0;
+  }
+
+  function normalizeWudaoSource(source) {
+    const input = source && typeof source === 'object' ? source : {};
+    return {
+      installed: !!input.installed,
+      enabled: input.enabled !== false && !!input.installed,
+      totalSize: Number(input.totalSize || 0),
+      recordCounts: input.recordCounts || { en: 0, zh: 0 }
+    };
   }
 
   function normalizeDictionaries(input) {
@@ -851,6 +1030,23 @@
       updatedAt: Date.now()
     };
   }
+  function wudaoToDraft(data) {
+    return {
+      dictionaryId: defaultWritableDictionaryId(),
+      term: data.term || state.query.trim(),
+      aliases: [],
+      chinese: '',
+      definition: (data.definitions || []).slice(0, 6).join('\n'),
+      tags: ['Wudao'],
+      related: [],
+      category: '',
+      source: data.provider || 'Wudao offline dictionary'
+    };
+  }
+  function formatWudaoCopy(data) {
+    return [data.term || state.query, data.phonetic || '', ...(data.definitions || []), ...(data.examples || [])].filter(Boolean).join('\n');
+  }
+
   function onlineToDraft(data) {
     const definition = (data.definitions || []).slice(0, 3).map((item) => item.definition).filter(Boolean).join('\n') || data.translation || '';
     return {
@@ -880,7 +1076,7 @@
   }
 
   function handleSelection(event) {
-    if (state.destroyed || event.composedPath?.().includes(state.host)) return;
+    if (!isCurrentInstance() || event.composedPath?.().includes(state.host)) return;
     setTimeout(() => {
       const selection = window.getSelection();
       const text = selection?.toString().trim();
@@ -902,7 +1098,7 @@
   }
 
   async function showBubble(text, rect) {
-    if (state.destroyed) return;
+    if (!isCurrentInstance()) return;
     await ensureRoot(false);
     removeBubble();
     const bubble = el('button', 'dictfloat-bubble', '⌕');
@@ -927,12 +1123,12 @@
   }
 
   function minimize() {
-    if (state.destroyed) return;
+    if (!isCurrentInstance()) return;
     state.minimized = true;
     render();
   }
   function restore() {
-    if (state.destroyed) return;
+    if (!isCurrentInstance()) return;
     state.minimized = false;
     render();
     focusSearch();
@@ -1003,6 +1199,7 @@
   }
 
   function handleGlobalKeys(event) {
+    if (!isCurrentInstance()) return;
     if (event.key === 'Escape' && state.host && !event.composedPath?.().includes(state.host)) removeBubble();
   }
 

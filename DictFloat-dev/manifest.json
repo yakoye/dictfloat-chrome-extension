@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.3.2",
-  "description": "Compact floating dictionary with selection lookup, online lookup, and local technical glossaries.",
+  "version": "0.3.4",
+  "description": "Compact floating dictionary with selection lookup, online fallback, local glossaries, and optional offline Wudao data packs.",
   "permissions": [
     "storage",
     "contextMenus",
-    "scripting"
+    "scripting",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -1,27 +1,46 @@
-# DictFloat v0.3.2
+# DictFloat v0.3.4
 
-Compact Chrome floating dictionary for local technical glossaries, selection lookup, and online fallback.
+Compact Chrome floating dictionary for local technical glossaries, selection lookup, online fallback, and optional offline Wudao data.
 
-## v0.3.2 highlights / 本版重点
+## v0.3.4 highlights / 本版重点
 
-- **Shadow-DOM floating window**: the panel no longer inherits button, input, dark-mode, or focus styles from GitHub, documentation sites, or other host pages.
-- **Reworked minimize**: the title-bar minus button now collapses to a compact DictFloat mini bar with a restore control, instead of a detached oversized lookup button.
-- **Related terms**: local entries can store and click through related terms such as `MPS`, `MRRS`, `RCB`, and `Completion Timeout`.
-- **History management**: the History tab now has a Clear action.
-- **Reliable entry workflow**: every local entry can be opened from results or History, edited, saved, or deleted; starter entries remain local data and may be corrected directly.
-- **Single-window guard**: stale roots left by a prior extension reload are removed before DictFloat opens, so one page keeps one DictFloat window.
-- **Structured result cards**: each local result now shows Term, Aliases, Chinese, and Dictionary in a stable order.
-- **MDX / MDD beta intake**: Settings can select local `.mdx` and optional matching `.mdd` files, parse the MDX XML header, identify engine / encoding metadata, pair matching MDD filenames, manage source enable state, and export/import source metadata with your backup.
-- **MDX / MDD limitation in v0.3.2**: this build deliberately stops at local source registration and header validation. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources. Dictionary files themselves are not copied into Chrome storage, so multi-GB files are never silently duplicated.
+- **Single-window rewrite / 单窗口重构**: all entry points now reuse one document-owned DictFloat root. Lookup, detail, History, Add, Edit, Return, minimize, and restore only switch the content inside that one panel.
+- **Stale-script guard / 旧脚本防护**: each injected runtime receives a document-level ownership token. After an extension refresh or reinjection, earlier listeners become inactive and cannot create another floating window.
+- **Return restores the prior page / Return 恢复原页面**: Return restores the originating result list or History view inside the same panel, including its previous search query and scroll position.
+
+- **Optional Wudao offline pack**: DictFloat now understands the Wudao-dict four-file layout: `en.ind`, `en.z`, `zh.ind`, and `zh.z`.
+- **Real local lookup**: after a user imports those four files, English–Chinese and Chinese–English entries are queried locally. The extension reads the index offsets, opens only the needed compressed record, decompresses it in the extension worker, and renders the definition in the floating panel.
+- **No bundled Wudao data**: the data pack is deliberately not copied into this ZIP. It must be selected from a local copy the user is permitted to use. Imported files are held only in DictFloat's IndexedDB and can be removed from Settings at any time.
+- **Local-data control**: Settings shows pack status, entry counts, stored size, a per-pack enable switch, and a remove action.
+- **Save Wudao results**: an offline Wudao result can be copied or saved into any writable DictFloat glossary, then edited like any other local term.
 
 ## Existing features / 已有功能
 
-- Toolbar icon opens a compact, draggable 380px window by default.
+- Toolbar icon opens one compact, draggable floating window by default.
 - Small 12px default UI with light, dark, and Follow Chrome modes.
 - Selected-text lookup bubble or optional automatic lookup.
 - Local multi-glossary search: aliases, Chinese text, tags, related terms, and definitions are searchable.
 - Local entry creation, editing, favorites, copying, history, JSON backup, and CSV import/export.
 - Online English definition and Chinese/English translation fallback; saved online results can become local entries.
+- MDX / MDD intake: Settings can read MDX header metadata and record MDX/MDD source pairs.
+
+## Wudao offline workflow / 无道词典离线包流程
+
+1. Obtain a local copy of the Wudao-dict data files through a source you are permitted to use.
+2. In the local copy, open `wudao-dict/dict`.
+3. Open **DictFloat Settings** → **Wudao offline dictionary**.
+4. Click **Import Wudao files** and select all four files together:
+   - `en.ind`
+   - `en.z`
+   - `zh.ind`
+   - `zh.z`
+5. Once the status says **Ready for offline lookup**, query an English or Chinese word in DictFloat and press Enter.
+
+The import copies the selected data files into the browser profile's DictFloat IndexedDB so lookup continues working after the Settings page closes. Remove local pack deletes that copy only; it does not change the source files you selected.
+
+## MDX / MDD beta workflow / MDX / MDD 测试流程
+
+Open **Settings** → **MDX / MDD dictionaries** → **Add MDX / MDD files**. Select one `.mdx` and its matching `.mdd` resources in the same picker. DictFloat currently reads metadata locally and lists the source. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources.
 
 ## Installation / 安装
 
@@ -30,7 +49,3 @@ Compact Chrome floating dictionary for local technical glossaries, selection loo
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select the extracted folder.
 5. After an update, use the refresh button on the DictFloat extension card, then refresh any test page.
-
-## MDX / MDD beta workflow / MDX / MDD 测试流程
-
-Open **Settings** → **MDX / MDD dictionaries** → **Add MDX / MDD files**. Select one `.mdx` and its matching `.mdd` resources in the same picker. DictFloat reads metadata locally and lists the source. It will remain marked `Header ready · decoder next` until the actual MDX decoder is integrated.

@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.3.2</div>
+      <div class="version">v0.3.4</div>
     </header>
 
     <section class="card">
@@ -40,6 +40,13 @@
     <section class="card">
       <div class="section-title"><div><h2>Local glossaries</h2><p class="hint">Create separate PCIe, GPU, firmware, or learning glossaries. Disabled glossaries stay local but do not participate in search.</p></div><button id="addDictionary" type="button">+ New glossary</button></div>
       <div id="dictionaryList" class="dictionary-list"></div>
+    </section>
+
+    <section class="card" id="wudaoCard">
+      <div class="section-title"><div><h2>Wudao offline dictionary <span class="beta-chip">Optional</span></h2><p class="hint">Import a local Wudao-style data pack. DictFloat keeps the four selected files in its own local IndexedDB and reads them offline.</p></div></div>
+      <div class="actions"><label class="file-btn source-file-btn">Import Wudao files<input id="importWudaoFiles" type="file" accept=".ind,.z" multiple></label><button id="removeWudaoPack" class="danger" type="button">Remove local pack</button></div>
+      <p class="hint">Select <code>en.ind</code>, <code>en.z</code>, <code>zh.ind</code>, and <code>zh.z</code> together from a local copy you are permitted to use. The pack is not bundled with DictFloat.</p>
+      <div id="wudaoSourceStatus" class="dictionary-list source-list"></div>
     </section>
 
     <section class="card">
