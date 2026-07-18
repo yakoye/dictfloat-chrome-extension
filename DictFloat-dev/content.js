@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.7'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.8'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -1200,6 +1200,21 @@
           else node.removeAttribute(attr.name);
           return;
         }
+        // Older MDX skins often use <font color> and bgcolor attributes rather
+        // than CSS. In dark mode retain their hue, but remap it into a readable
+        // palette instead of letting black ink or white paper leak through.
+        if (darkReadable && name === 'color') {
+          const adapted = adaptMdictColorForDark(rawValue, 'text');
+          if (adapted) node.style.color = adapted;
+          node.removeAttribute(attr.name);
+          return;
+        }
+        if (darkReadable && name === 'bgcolor') {
+          const adapted = adaptMdictColorForDark(rawValue, 'background');
+          if (adapted) node.style.backgroundColor = adapted;
+          node.removeAttribute(attr.name);
+          return;
+        }
         if (name.startsWith('on') || name === 'src' || name === 'href' || value.startsWith('javascript:')) node.removeAttribute(attr.name);
       });
     });
@@ -1212,7 +1227,7 @@
 
   function safeMdictInlineStyle(raw, darkReadable = false) {
     const allowed = new Set([
-      'color', 'background-color', 'font-weight', 'font-style', 'font-size',
+      'color', 'background', 'background-color', 'font-weight', 'font-style', 'font-size',
       'line-height', 'text-decoration', 'text-align', 'vertical-align',
       'white-space', 'margin', 'margin-left', 'margin-right', 'margin-top',
       'margin-bottom', 'padding', 'padding-left', 'padding-right', 'padding-top',
@@ -1229,11 +1244,17 @@
       if (!allowed.has(property) || !value) continue;
       if (/url\s*\(|expression\s*\(|@import|javascript:/i.test(value)) continue;
       if (property === 'display' && /^(?:none|contents)$/i.test(value)) continue;
-      // Imported dictionary skins are usually authored for white pages. In a
-      // dark DictFloat window their inline dark ink / white paper styles make
-      // entries unreadable, so layout is preserved but color paint is handled
-      // by the controlled dark-readable layer below.
-      if (darkReadable && /^(?:color|background-color)$/i.test(property)) continue;
+      if (darkReadable && property === 'text-shadow') continue;
+      if (darkReadable && property === 'color') {
+        const adapted = adaptMdictColorForDark(value, 'text');
+        if (adapted) output.push(`${property}:${adapted}`);
+        continue;
+      }
+      if (darkReadable && /^(?:background|background-color)$/i.test(property)) {
+        const adapted = adaptMdictColorForDark(value, 'background');
+        if (adapted) output.push(`${property}:${adapted}`);
+        continue;
+      }
       output.push(`${property}:${value}`);
     }
     return output.join(';');
@@ -1257,12 +1278,7 @@
       if (!selectorText || selectorText.startsWith('@')) continue;
       let declarations = part.slice(brace + 1)
         .replace(/(?:^|;)\s*(?:position\s*:\s*(?:fixed|sticky)|z-index\s*:[^;]*|behavior\s*:[^;]*|filter\s*:[^;]*|animation[^;]*|transition[^;]*)/gi, ';');
-      if (darkReadable) {
-        // Keep dictionary typography, hierarchy, spacing and emphasis, but
-        // discard light-mode ink/paper colors. They are replaced by one
-        // accessible, panel-aware palette after the original CSS.
-        declarations = declarations.replace(/(?:^|;)\s*(?:color|background(?:-color|-image)?|text-shadow)\s*:[^;]*/gi, ';');
-      }
+      if (darkReadable) declarations = adaptMdictCssDeclarationsForDark(declarations);
       if (!declarations.trim()) continue;
       const selectors = selectorText.split(',').map((selector) => {
         let normalized = selector.trim();
@@ -1277,22 +1293,128 @@
     return rules.join('\n');
   }
 
+  function adaptMdictCssDeclarationsForDark(raw) {
+    const out = [];
+    for (const declaration of String(raw || '').split(';')) {
+      const separator = declaration.indexOf(':');
+      if (separator < 1) continue;
+      const property = declaration.slice(0, separator).trim().toLowerCase();
+      const value = declaration.slice(separator + 1).trim();
+      if (!property || !value) continue;
+      if (property === 'text-shadow') continue;
+      if (property === 'color') {
+        const adapted = adaptMdictColorForDark(value, 'text');
+        if (adapted) out.push(`${property}:${adapted}`);
+        continue;
+      }
+      if (/^(?:background|background-color)$/i.test(property)) {
+        const adapted = adaptMdictColorForDark(value, 'background');
+        if (adapted) out.push(`${property}:${adapted}`);
+        continue;
+      }
+      out.push(`${property}:${value}`);
+    }
+    return out.join(';');
+  }
+
+  function adaptMdictColorForDark(raw, role = 'text') {
+    const important = /\s*!important\s*$/i.test(String(raw || '')) ? ' !important' : '';
+    const rgb = parseMdictCssColor(String(raw || '').replace(/\s*!important\s*$/i, '').trim());
+    if (!rgb) return role === 'text' ? `#dbe7f5${important}` : '';
+    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    if (role === 'background') {
+      // Keep the source hue only as a restrained tint: source skins commonly
+      // use bright paper fills that become glare in DictFloat dark mode.
+      if (hsl.s < 0.10) return `rgba(148,163,184,.10)${important}`;
+      const tint = hslToRgb(hsl.h, Math.min(0.72, Math.max(0.42, hsl.s)), 0.56);
+      return `rgba(${tint.r},${tint.g},${tint.b},.16)${important}`;
+    }
+    if (hsl.s < 0.12) {
+      const neutral = hsl.l < 0.38 ? '#dbe7f5' : hsl.l > 0.83 ? '#f8fbff' : '#cbd8e8';
+      return `${neutral}${important}`;
+    }
+    const bright = hslToRgb(hsl.h, Math.min(0.84, Math.max(0.46, hsl.s)), Math.min(0.79, Math.max(0.66, hsl.l)));
+    return `${rgbToHex(bright.r, bright.g, bright.b)}${important}`;
+  }
+
+  function parseMdictCssColor(value) {
+    const source = String(value || '').trim().toLowerCase();
+    if (!source || /^(?:transparent|inherit|initial|unset|currentcolor|none)$/i.test(source)) return null;
+    const named = {
+      black: [0, 0, 0], white: [255, 255, 255], gray: [128, 128, 128], grey: [128, 128, 128],
+      red: [220, 38, 38], green: [22, 163, 74], blue: [37, 99, 235], navy: [30, 64, 175],
+      teal: [13, 148, 136], cyan: [8, 145, 178], aqua: [6, 182, 212], purple: [147, 51, 234],
+      magenta: [217, 70, 239], fuchsia: [192, 38, 211], orange: [234, 88, 12], yellow: [202, 138, 4],
+      gold: [202, 138, 4], brown: [146, 64, 14], pink: [219, 39, 119], maroon: [185, 28, 28],
+      olive: [101, 163, 13], silver: [148, 163, 184]
+    };
+    if (named[source]) {
+      const [r, g, b] = named[source];
+      return { r, g, b };
+    }
+    const hex = source.match(/^#([0-9a-f]{3,8})$/i);
+    if (hex) {
+      const raw = hex[1];
+      if (raw.length === 3 || raw.length === 4) {
+        return { r: parseInt(raw[0] + raw[0], 16), g: parseInt(raw[1] + raw[1], 16), b: parseInt(raw[2] + raw[2], 16) };
+      }
+      if (raw.length >= 6) return { r: parseInt(raw.slice(0, 2), 16), g: parseInt(raw.slice(2, 4), 16), b: parseInt(raw.slice(4, 6), 16) };
+    }
+    const rgb = source.match(/^rgba?\(\s*([^,]+),\s*([^,]+),\s*([^,\)]+)(?:,[^\)]*)?\)$/i);
+    if (rgb) {
+      const channel = (item) => item.includes('%') ? Math.round(Math.max(0, Math.min(100, Number.parseFloat(item))) * 2.55) : Math.round(Math.max(0, Math.min(255, Number.parseFloat(item))));
+      return { r: channel(rgb[1]), g: channel(rgb[2]), b: channel(rgb[3]) };
+    }
+    const hsl = source.match(/^hsla?\(\s*([-+\d.]+)(?:deg)?\s*,\s*([-+\d.]+)%\s*,\s*([-+\d.]+)%(?:\s*,[^\)]*)?\)$/i);
+    if (hsl) return hslToRgb(Number(hsl[1]), Number(hsl[2]) / 100, Number(hsl[3]) / 100);
+    return null;
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = ((g - b) / d) + (g < b ? 6 : 0);
+      else if (max === g) h = ((b - r) / d) + 2;
+      else h = ((r - g) / d) + 4;
+      h *= 60;
+    }
+    return { h, s, l };
+  }
+
+  function hslToRgb(h, s, l) {
+    h = ((Number(h) % 360) + 360) % 360;
+    const c = (1 - Math.abs((2 * l) - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - (c / 2);
+    let rp = 0, gp = 0, bp = 0;
+    if (h < 60) [rp, gp, bp] = [c, x, 0];
+    else if (h < 120) [rp, gp, bp] = [x, c, 0];
+    else if (h < 180) [rp, gp, bp] = [0, c, x];
+    else if (h < 240) [rp, gp, bp] = [0, x, c];
+    else if (h < 300) [rp, gp, bp] = [x, 0, c];
+    else [rp, gp, bp] = [c, 0, x];
+    return { r: Math.round((rp + m) * 255), g: Math.round((gp + m) * 255), b: Math.round((bp + m) * 255) };
+  }
+
+  function rgbToHex(r, g, b) {
+    return `#${[r, g, b].map((item) => Math.max(0, Math.min(255, Math.round(item))).toString(16).padStart(2, '0')).join('')}`;
+  }
+
   function mdictDarkReadableCss(scope) {
-    // This intentionally comes after a dictionary's original CSS. Original
-    // CSS still supplies structure (indentation, numbering, bold/italic,
-    // tables), while this layer guarantees readable contrast in dark mode.
+    // This comes after an adapted dictionary stylesheet. It only supplies the
+    // dark base surface and structural fallback; semantic source hues remain.
     return `
-${scope} { color:#e7eef8 !important; background:transparent !important; text-shadow:none !important; }
-${scope} :where(p,div,span,font,li,dd,dt,td,th,em,i,b,strong,a,small,sup,sub) {
-  color:inherit !important;
-  background:transparent !important;
-  text-shadow:none !important;
-  border-color:#34445e !important;
-}
-${scope} :where(table,tr,tbody,thead,tfoot,ol,ul) { background:transparent !important; border-color:#34445e !important; }
-${scope} :where(b,strong) { color:#f8fbff !important; font-weight:750 !important; }
+${scope} { color:#e7eef8; background:transparent; text-shadow:none !important; }
+${scope} :where(p,div,span,font,li,dd,dt,td,th,em,i,b,strong,a,small,sup,sub) { text-shadow:none !important; border-color:#34445e !important; }
+${scope} :where(table,tr,tbody,thead,tfoot,ol,ul) { border-color:#34445e !important; }
+${scope} :where(b,strong) { font-weight:750 !important; }
 ${scope} :where(.pos,.part,.gram,[class*="pos"],[class*="gram"],[class*="wordclass"],[class*="pron"]) { color:#93c5fd !important; }
-${scope} :where(.example,.examples,[class*="example"],[class*="examp"],[class*="note"]) { color:#b9c8db !important; }
+${scope} :where(.example,.examples,[class*="example"],[class*="examp"],[class*="note"]) { color:#c7d5e8 !important; }
 ${scope} :where(hr) { border-color:#34445e !important; }
 `;
   }
