@@ -48,6 +48,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
+  if (message?.type === 'DICTFLOAT_BRIDGE_TRANSLATE') {
+    translateWithWebBridge(String(message.text || ''), Array.isArray(message.providers) ? message.providers : [])
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
   if (message?.type === 'DICTFLOAT_WUDAO_RESET') {
     wudaoIndexCache.clear();
     sendResponse({ ok: true });
@@ -136,7 +142,8 @@ function defaultSettings() {
     panelWidth: 380,
     theme: 'system',
     onlineLookup: true,
-    accent: 'green'
+    accent: 'green',
+    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false }
   };
 }
 
@@ -278,6 +285,84 @@ function seedEntries() {
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MRRS', aliases: ['Max Read Request Size', 'Maximum Read Request Size'], chinese: '最大读请求大小', definition: 'The maximum amount of data requested by a PCIe Memory Read Request.', tags: ['PCIe', 'TLP'], related: ['MPS', 'Completion Timeout'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'Completion Timeout', aliases: ['Cpl Timeout', 'Completion Time-out'], chinese: '完成超时', definition: 'The maximum allowed time to receive a Completion for a non-posted PCIe request before timeout handling is triggered.', tags: ['PCIe', 'Completion', 'Error Handling'], related: ['RCB', 'MRRS'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now }
   ];
+}
+
+
+// ---------------------------------------------------------------------------
+// Experimental translation web bridges
+// ---------------------------------------------------------------------------
+const WEB_BRIDGE_PROVIDERS = {
+  youdao: { name: 'Youdao Web Bridge', url: 'https://fanyi.youdao.com/#/TextTranslate', queryUrl: 'https://fanyi.youdao.com/*' },
+  baidu: { name: 'Baidu Web Bridge', url: 'https://fanyi.baidu.com/mtpe-individual/transText', queryUrl: 'https://fanyi.baidu.com/*' },
+  doubao: { name: 'Doubao Web Bridge', url: 'https://www.doubao.com/chat/', queryUrl: 'https://www.doubao.com/*' }
+};
+
+async function translateWithWebBridge(rawText, providerKeys) {
+  const text = String(rawText || '').trim().replace(/\s+/g, ' ');
+  if (!text) throw new Error('No text to translate.');
+  if (text.length > 8000) throw new Error('Selected text is too long for web bridge translation.');
+  const ordered = providerKeys.map((key) => String(key || '').toLowerCase()).filter((key) => WEB_BRIDGE_PROVIDERS[key]);
+  if (!ordered.length) throw new Error('No web bridge translation provider is enabled.');
+  const errors = [];
+  for (const key of ordered) {
+    try {
+      const data = await translateWithOneWebBridge(key, text);
+      if (data?.translation) return data;
+      throw new Error('No translation returned.');
+    } catch (error) {
+      errors.push(`${WEB_BRIDGE_PROVIDERS[key].name}: ${String(error?.message || error)}`);
+    }
+  }
+  throw new Error(errors.join(' | ') || 'Web bridge translation failed.');
+}
+
+async function translateWithOneWebBridge(providerKey, text) {
+  const config = WEB_BRIDGE_PROVIDERS[providerKey];
+  const tab = await ensureBridgeTab(config);
+  await injectBridgeScript(tab.id);
+  const response = await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_WEB_BRIDGE_TRANSLATE', provider: providerKey, text });
+  if (!response?.ok) throw new Error(response?.error || `${config.name} failed.`);
+  return { ...response.data, provider: config.name };
+}
+
+async function ensureBridgeTab(config) {
+  const tabs = await chrome.tabs.query({ url: config.queryUrl }).catch(() => []);
+  const existing = tabs.find((tab) => tab.id && !tab.discarded);
+  if (existing?.id) {
+    if (existing.status !== 'complete') await waitForTabComplete(existing.id, 12000).catch(() => undefined);
+    return existing;
+  }
+  const created = await chrome.tabs.create({ url: config.url, active: false });
+  await waitForTabComplete(created.id, 18000).catch(() => undefined);
+  return created;
+}
+
+function waitForTabComplete(tabId, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Translation page did not finish loading.')); }, timeoutMs);
+    const cleanup = () => { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); };
+    const listener = (id, info) => {
+      if (id === tabId && info.status === 'complete') { cleanup(); resolve(true); }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === 'complete') { cleanup(); resolve(true); }
+    }).catch(() => undefined);
+  });
+}
+
+async function injectBridgeScript(tabId) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['bridge.js'] });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  throw new Error(`Unable to inject bridge script: ${String(lastError?.message || lastError || 'unknown error')}`);
 }
 
 

@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green' };
+const defaultTranslationProviders = () => ({ chrome: true, youdao: false, baidu: false, doubao: false });
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders() };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -50,14 +51,15 @@ async function init() {
   recoverySnapshots = normalizeRecoverySnapshots(data[RECOVERY_SNAPSHOT_KEY]);
   await reconcileMdictSourceHealth();
 
-  for (const key of Object.keys(defaults)) {
+  for (const key of ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent']) {
     const element = $(key);
     if (!element) continue;
     if (element.type === 'checkbox') element.checked = !!settings[key];
     else element.value = settings[key];
   }
+  applyTranslationProviderSettings(settings.translationProviders);
 
-  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent'].forEach((id) => $(id).addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('newGlossaryAction').addEventListener('click', async () => { closeAddSourceMenu(); await addDictionary(); });
   $('connectMdictFolder').addEventListener('click', async () => { closeAddSourceMenu(); await connectMdictFolder(); });
@@ -115,6 +117,31 @@ function applyAccent(accent) {
   document.body.dataset.accent = ['rose', 'green', 'blue'].includes(accent) ? accent : 'green';
 }
 
+function normalizeTranslationProviders(input) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    chrome: value.chrome !== false,
+    youdao: value.youdao === true,
+    baidu: value.baidu === true,
+    doubao: value.doubao === true
+  };
+}
+
+function applyTranslationProviderSettings(input) {
+  const providers = normalizeTranslationProviders(input);
+  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao' };
+  Object.entries(map).forEach(([id, key]) => { const node = $(id); if (node) node.checked = !!providers[key]; });
+}
+
+function readTranslationProviderSettings() {
+  return {
+    chrome: $('translateChrome')?.checked !== false,
+    youdao: $('translateYoudaoBridge')?.checked === true,
+    baidu: $('translateBaiduBridge')?.checked === true,
+    doubao: $('translateDoubaoBridge')?.checked === true
+  };
+}
+
 async function saveSettings() {
   const settings = {
     selectionMode: $('selectionMode').value,
@@ -123,6 +150,7 @@ async function saveSettings() {
     theme: $('theme').value,
     onlineLookup: $('onlineLookup').checked,
     accent: $('accent').value,
+    translationProviders: readTranslationProviderSettings(),
     themeLockedByUser: true
   };
   $('fontSize').value = settings.fontSize;

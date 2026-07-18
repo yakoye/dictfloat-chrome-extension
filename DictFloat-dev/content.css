@@ -839,3 +839,66 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-tag-more { border:0; cursor:pointer; font:inherit; }
 .dictfloat-tag-more:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
 .dark .dictfloat-tag-more:hover { background:color-mix(in srgb, var(--df-accent) 20%, #172338); }
+
+
+/* Sentence translation / web bridge */
+.dictfloat-source-section.translate .dictfloat-source-badge { border-color:var(--df-accent-border); background:var(--df-accent-soft); color:var(--df-accent-strong); }
+.dictfloat-translate-card {
+  margin:0 0 7px;
+  padding:7px 8px;
+  border:1px solid #e5ebf3;
+  border-radius:9px;
+  background:#fbfcff;
+}
+.dark .dictfloat-translate-card { border-color:#33445e; background:#111a28; }
+.dictfloat-translate-card.loading { background:#fbfdff; }
+.dark .dictfloat-translate-card.loading { background:#111c2c; }
+.dictfloat-translate-card.error { border-color:#f0d4d4; background:#fffafa; }
+.dark .dictfloat-translate-card.error { border-color:#53313a; background:#211720; }
+.dictfloat-translate-card-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  min-height:20px;
+  margin-bottom:5px;
+  color:#3c4a60;
+  font-size:10px;
+  line-height:1.3;
+}
+.dark .dictfloat-translate-card-head { color:#c6d2e3; }
+.dictfloat-translate-card-head strong { font-size:10px; font-weight:700; }
+.dictfloat-translate-hint,.dictfloat-translate-meta { color:#8b98aa; font-size:10px; line-height:1.45; }
+.dark .dictfloat-translate-hint,.dark .dictfloat-translate-meta { color:#91a0b6; }
+.dictfloat-translate-result {
+  white-space:pre-wrap;
+  word-break:break-word;
+  color:#253147;
+  font-size:12px;
+  line-height:1.62;
+}
+.dark .dictfloat-translate-result { color:#e7edf7; }
+.dictfloat-translate-actions { display:flex; align-items:center; gap:5px; margin-left:auto; }
+.dictfloat-action-chip,
+.dictfloat-translate-actions button {
+  min-height:19px;
+  padding:1px 6px;
+  border:1px solid #d8e1ee;
+  border-radius:999px;
+  background:#fff;
+  color:#64748b;
+  cursor:pointer;
+  font-size:9px;
+  font-weight:650;
+  line-height:1.3;
+}
+.dictfloat-action-chip:hover,
+.dictfloat-translate-actions button:hover { border-color:var(--df-accent); color:var(--df-accent-strong); background:var(--df-accent-soft); }
+.dark .dictfloat-action-chip,
+.dark .dictfloat-translate-actions button { border-color:#3a4b65; background:#151f30; color:#c3cfdf; }
+.dark .dictfloat-action-chip:hover,
+.dark .dictfloat-translate-actions button:hover { border-color:color-mix(in srgb, var(--df-accent) 42%, #3a4b65); color:color-mix(in srgb, var(--df-accent) 58%, white); background:color-mix(in srgb, var(--df-accent) 16%, #172338); }
+.dictfloat-translate-error { margin:0; color:#b42318; font-size:10px; line-height:1.45; word-break:break-word; }
+.dark .dictfloat-translate-error { color:#fca5a5; }
+.dictfloat-translate-empty { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#6b7b91; font-size:11px; line-height:1.45; }
+.dark .dictfloat-translate-empty { color:#aab7ca; }
