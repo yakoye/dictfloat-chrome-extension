@@ -135,14 +135,14 @@ function defaultSettings() {
     fontSize: 12,
     panelWidth: 380,
     theme: 'system',
-    onlineLookup: true
+    onlineLookup: true,
+    accent: 'rose'
   };
 }
 
 function defaultDictionaries() {
   return [
-    { id: 'pcie-starter', name: 'PCIe Starter', enabled: true, builtIn: true, createdAt: 0 },
-    { id: 'my-glossary', name: 'My Glossary', enabled: true, builtIn: false, createdAt: Date.now() }
+    { id: 'pcie-starter', name: 'DictFloat Glossary', enabled: true, builtIn: true, locallyEditable: true, createdAt: 0 }
   ];
 }
 
@@ -153,11 +153,12 @@ function normalizeDictionaries(input) {
     name: String(item.name || 'Untitled glossary').trim() || 'Untitled glossary',
     enabled: item.enabled !== false,
     builtIn: !!item.builtIn,
+    locallyEditable: item.locallyEditable === true || String(item.id || '') === 'pcie-starter',
     createdAt: item.createdAt || Date.now()
   }));
-  defaultDictionaries().forEach((item) => {
-    if (!mapped.some((dictionary) => dictionary.id === item.id)) mapped.push(item);
-  });
+  const starter = mapped.find((dictionary) => dictionary.id === 'pcie-starter');
+  if (!starter) mapped.push(defaultDictionaries()[0]);
+  else { if (starter.name === 'PCIe Starter') starter.name = 'DictFloat Glossary'; starter.builtIn = true; starter.locallyEditable = true; }
   return mapped;
 }
 
@@ -172,7 +173,7 @@ async function lookupMdict(source, rawQuery) {
 
   const health = await DictFloatMdictDB.inspectLinkedSource(source.id);
   if (!health.ready) {
-    await markMdictSourceReconnect(source.id, health.message);
+    await markMdictSourceState(source.id, health.state || 'missing', health.message);
     throw new Error(health.message);
   }
   try {
@@ -180,13 +181,13 @@ async function lookupMdict(source, rawQuery) {
   } catch (error) {
     const message = String(error?.message || error || 'MDX lookup failed.');
     if (/metadata is missing|permission is not available|linked MDX file changed|linked MDX file/i.test(message)) {
-      await markMdictSourceReconnect(source.id, message);
+      await markMdictSourceState(source.id, /permission/i.test(message) ? 'access' : 'missing', message);
     }
     throw error;
   }
 }
 
-async function markMdictSourceReconnect(sourceId, message = '') {
+async function markMdictSourceState(sourceId, state = 'missing', message = '') {
   try {
     const stored = await chrome.storage.local.get('dictFloatMdictSources');
     const sources = Array.isArray(stored.dictFloatMdictSources) ? stored.dictFloatMdictSources : [];
@@ -194,7 +195,7 @@ async function markMdictSourceReconnect(sourceId, message = '') {
     const next = sources.map((item) => {
       if (String(item?.id) !== String(sourceId)) return item;
       changed = true;
-      return { ...item, status: 'reconnect', connectionMessage: String(message || 'Reconnect the dictionary root.') };
+      return { ...item, status: state, connectionMessage: String(message || (state === 'access' ? 'Access confirmation required.' : 'Linked MDX file is unavailable.')) };
     });
     if (changed) await chrome.storage.local.set({ dictFloatMdictSources: next });
   } catch (_) {

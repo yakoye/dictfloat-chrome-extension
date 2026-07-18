@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true };
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'rose' };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -13,8 +13,7 @@ const BACKUP_STORAGE_KEYS = [
   'dictFloatHistory', 'dictFloatPanelPosition', 'dictFloatCollapsedSources'
 ];
 const defaultDictionaries = () => [
-  { id: 'pcie-starter', name: 'PCIe Starter', enabled: true, builtIn: true, sourceKind: 'built-in', createdAt: 0 },
-  { id: 'my-glossary', name: 'My Glossary', enabled: true, builtIn: false, sourceKind: 'manual', createdAt: Date.now() }
+  { id: 'pcie-starter', name: 'DictFloat Glossary', enabled: true, builtIn: true, locallyEditable: true, sourceKind: 'built-in', createdAt: 0 }
 ];
 
 let entries = [];
@@ -41,8 +40,10 @@ async function init() {
     RECOVERY_SNAPSHOT_KEY
   ]);
   const settings = { ...defaults, ...(data.dictFloatSettings || {}) };
+  applyAccent(settings.accent);
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
+  const starterMigrationChanged = migrateStarterGlossaryEntries();
   mdictSources = Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources.map(normalizeMdictSource) : [];
   wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
   sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
@@ -56,7 +57,7 @@ async function init() {
     else element.value = settings[key];
   }
 
-  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup'].forEach((id) => $(id).addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent'].forEach((id) => $(id).addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('newGlossaryAction').addEventListener('click', async () => { closeAddSourceMenu(); await addDictionary(); });
   $('connectMdictFolder').addEventListener('click', async () => { closeAddSourceMenu(); await connectMdictFolder(); });
@@ -66,7 +67,14 @@ async function init() {
   $('exportCsv').addEventListener('click', exportCsv);
   $('exportBackup').addEventListener('click', exportBackup);
   $('importBackup').addEventListener('change', importBackup);
-  $('reconnectDictionaryRootInline')?.addEventListener('click', reconnectDictionaryRoot);
+  $('reconnectDictionaryRootInline')?.addEventListener('click', handleLibraryConnectionAction);
+  $('entryManagerClose')?.addEventListener('click', closeEntryManager);
+  $('entryManagerSearch')?.addEventListener('input', renderEntryManager);
+  $('entryManagerAdd')?.addEventListener('click', () => openEntryEditor(null));
+  $('entryEditorCancel')?.addEventListener('click', closeEntryEditor);
+  $('entryEditorCancelSecondary')?.addEventListener('click', closeEntryEditor);
+  $('entryEditorDelete')?.addEventListener('click', deleteEntryFromManager);
+  $('entryEditorForm')?.addEventListener('submit', saveEntryEditor);
   $('importFile').addEventListener('change', importFile);
   $('clearEntries').addEventListener('click', clearEntries);
   $('toggleAddSource').addEventListener('click', toggleAddSourceMenu);
@@ -103,6 +111,10 @@ function closeAddSourceMenu() {
   button.setAttribute('aria-expanded', 'false');
 }
 
+function applyAccent(accent) {
+  document.body.dataset.accent = ['rose', 'green', 'blue'].includes(accent) ? accent : 'rose';
+}
+
 async function saveSettings() {
   const settings = {
     selectionMode: $('selectionMode').value,
@@ -110,11 +122,13 @@ async function saveSettings() {
     panelWidth: clamp(Number($('panelWidth').value), 320, 520, 380),
     theme: $('theme').value,
     onlineLookup: $('onlineLookup').checked,
+    accent: $('accent').value,
     themeLockedByUser: true
   };
   $('fontSize').value = settings.fontSize;
   $('panelWidth').value = settings.panelWidth;
   await chrome.storage.local.set({ dictFloatSettings: settings });
+  applyAccent(settings.accent);
   status('Saved. Open windows update immediately.');
 }
 
@@ -136,25 +150,11 @@ async function reconcileMdictSourceHealth() {
     const next = { ...source };
     try {
       const health = await DictFloatMdictDB.inspectLinkedSource(source.id);
-      if (health.ready) {
-        if (next.status !== 'ready' || next.connectionMessage) {
-          next.status = 'ready';
-          next.connectionMessage = '';
-          changed = true;
-        }
-      } else {
-        if (next.status !== 'reconnect' || next.connectionMessage !== health.message) {
-          next.status = 'reconnect';
-          next.connectionMessage = health.message;
-          changed = true;
-        }
-      }
+      const statusValue = health.ready ? 'ready' : (health.state || 'missing');
+      const message = health.ready ? '' : String(health.message || 'Linked MDX file is unavailable.');
+      if (next.status !== statusValue || next.connectionMessage !== message) { next.status = statusValue; next.connectionMessage = message; changed = true; }
     } catch (_) {
-      if (next.status !== 'reconnect' || !next.connectionMessage) {
-        next.status = 'reconnect';
-        next.connectionMessage = 'Saved MDX link is unavailable. Reconnect the dictionary root.';
-        changed = true;
-      }
+      if (next.status !== 'missing' || next.connectionMessage !== 'Saved MDX link is missing.') { next.status='missing'; next.connectionMessage='Saved MDX link is missing.'; changed=true; }
     }
     updated.push(normalizeMdictSource(next));
   }
@@ -186,14 +186,20 @@ function renderDictionaryLibrary() {
     empty.textContent = 'No dictionary source yet. Use + Add source to connect a dictionary or create a glossary.';
     list.append(empty);
   }
-  const stale = mdictSources.filter((source) => source.status !== 'ready');
+  const missing = mdictSources.filter((source) => ['missing', 'changed'].includes(source.status));
+  const access = mdictSources.filter((source) => source.status === 'access');
   const notice = $('libraryConnectionNotice');
   const noticeText = $('libraryConnectionNoticeText');
-  if (notice && noticeText) {
-    notice.hidden = !stale.length;
-    noticeText.textContent = stale.length === 1
-      ? '1 linked dictionary needs reconnecting.'
-      : `${stale.length} linked dictionaries need reconnecting.`;
+  const action = $('reconnectDictionaryRootInline');
+  if (notice && noticeText && action) {
+    notice.hidden = !(missing.length || access.length);
+    if (missing.length) {
+      noticeText.textContent = missing.length === 1 ? '1 linked dictionary file needs locating.' : `${missing.length} linked dictionary files need locating.`;
+      action.textContent = 'Find missing'; action.dataset.action = 'find-missing';
+    } else {
+      noticeText.textContent = access.length === 1 ? '1 linked dictionary needs access confirmation.' : `${access.length} linked dictionaries need access confirmation.`;
+      action.textContent = 'Restore access'; action.dataset.action = 'restore-access';
+    }
   }
 }
 
@@ -293,22 +299,15 @@ async function moveSourceByDrag(sourceKey, targetKey, before) {
 function buildGlossaryLibraryRow(dictionary, index) {
   if (!dictionary) return null;
   const count = entries.filter((entry) => entry.dictionaryId === dictionary.id).length;
-  const fileLabel = dictionary.fileName
-    ? `🔗 ${dictionary.fileName} · ${count} editable ${count === 1 ? 'entry' : 'entries'}`
-    : `✎ Editable glossary · ${count} ${count === 1 ? 'entry' : 'entries'}`;
-  const kind = dictionary.builtIn ? 'Built-in' : 'Glossary';
-  const state = dictionary.builtIn ? 'Included with DictFloat · read-only source' : 'Editable locally · JSON / CSV export available';
+  const fileLabel = dictionary.fileName ? `🔗 ${dictionary.fileName} · ${count} editable ${count === 1 ? 'entry' : 'entries'}` : `✎ ${count} editable ${count === 1 ? 'entry' : 'entries'}`;
+  const kind = dictionary.builtIn ? 'Built-in · editable' : 'Glossary';
+  const state = dictionary.builtIn ? 'Starter glossary · local edits stay on this device' : 'Editable locally · JSON / CSV export available';
   const { row, actions } = makeLibraryBaseRow(index, sourceKeyForGlossary(dictionary), dictionary.enabled, dictionary.name, kind, fileLabel, state, async (checked) => {
-    dictionary.enabled = checked;
-    await saveDictionaries();
-    renderDictionaryLibrary();
-    status(`${dictionary.name} ${checked ? 'enabled' : 'disabled'}.`);
+    dictionary.enabled = checked; await saveDictionaries(); renderDictionaryLibrary(); status(`${dictionary.name} ${checked ? 'enabled' : 'disabled'}.`);
   });
-  if (!dictionary.builtIn) {
-    actions.append(makeButton('Rename', () => renameDictionary(dictionary)));
-    actions.append(makeButton('Export', () => exportGlossary(dictionary)));
-    actions.append(makeButton('Delete', () => deleteDictionary(dictionary), 'delete'));
-  }
+  actions.append(makeButton('Edit entries', () => openEntryManager(dictionary)));
+  if (!dictionary.builtIn) { actions.append(makeButton('Rename', () => renameDictionary(dictionary))); actions.append(makeButton('Export', () => exportGlossary(dictionary))); actions.append(makeButton('Delete', () => deleteDictionary(dictionary), 'delete')); }
+  else actions.append(makeButton('Export', () => exportGlossary(dictionary)));
   return row;
 }
 
@@ -317,23 +316,15 @@ function buildMdictLibraryRow(source, index) {
   const css = source.cssFiles.length ? `${source.cssFiles.length} CSS` : 'Compact style';
   const mdd = source.mddFiles.length ? `${source.mddFiles.length} MDD` : 'No MDD';
   const fileLine = `🔗 ${source.fileName || source.name} · ${formatSize(source.fileSize)} · ${css} · ${mdd}`;
-  const state = source.status === 'ready'
-    ? `Linked · on-demand lookup · ${source.cssMode === 'compact' ? 'Compact style' : 'Original CSS'}`
-    : `Reconnect required · ${source.connectionMessage || 'the local MDX link is unavailable'}`;
-  const { row, actions } = makeLibraryBaseRow(index, sourceKeyForMdict(source), source.enabled, source.name, 'Linked MDX', fileLine, state, async (checked) => {
-    source.enabled = checked;
-    await saveMdictSources();
-    renderDictionaryLibrary();
-    status(`${source.name} ${checked ? 'enabled' : 'disabled'}.`);
+  const labels = { ready:`Linked · on-demand lookup · ${source.cssMode === 'compact' ? 'Compact style' : 'Original CSS'}`, access:'Access confirmation required · the linked folder is still remembered', changed:'MDX file changed · rebuild its lightweight index', missing:'File link is missing · locate this dictionary only' };
+  const { row, actions } = makeLibraryBaseRow(index, sourceKeyForMdict(source), source.enabled, source.name, 'Linked MDX', labels[source.status] || labels.missing, async (checked) => {
+    source.enabled=checked; await saveMdictSources(); renderDictionaryLibrary(); status(`${source.name} ${checked ? 'enabled' : 'disabled'}.`);
   });
   actions.append(makeButton('Rename', () => renameMdictSource(source)));
-  if (source.status === 'ready') actions.append(makeButton('Rebuild', () => rebuildMdictSource(source)));
-  else actions.append(makeButton('Reconnect', () => reconnectMdictSource(source)));
-  if (source.cssFiles.length) {
-    const style = makeButton(source.cssMode === 'compact' ? 'Style: Compact' : 'Style: Original', () => toggleMdictStyle(source));
-    style.title = 'Toggle safe original CSS / DictFloat compact style';
-    actions.append(style);
-  }
+  if (source.status === 'ready' || source.status === 'changed') actions.append(makeButton('Rebuild', () => rebuildMdictSource(source)));
+  if (source.status === 'access') actions.append(makeButton('Restore access', () => restoreMdictSourceAccess(source)));
+  if (source.status === 'missing') actions.append(makeButton('Locate', () => reconnectMdictSource(source)));
+  if (source.cssFiles.length) actions.append(makeButton(source.cssMode === 'compact' ? 'Style: Compact' : 'Style: Original', () => toggleMdictStyle(source)));
   actions.append(makeButton('Export', () => exportMdictConfig(source)));
   actions.append(makeButton('Disconnect', () => removeMdictSource(source), 'delete'));
   return row;
@@ -450,7 +441,7 @@ async function deleteDictionary(dictionary) {
     message: 'This removes the editable glossary and its local entries from DictFloat.',
     impact: [
       `${count} local ${count === 1 ? 'entry' : 'entries'} will be removed.`,
-      'Built-in PCIe Starter, linked MDX/MDD dictionaries, Wudao, history, and settings are not affected.',
+      'Built-in glossary entries, linked MDX/MDD dictionaries, Wudao, history, and settings are not affected.',
       'A recovery snapshot will be created first.'
     ],
     confirmLabel: 'Delete glossary',
@@ -543,6 +534,30 @@ async function connectMdictFolder() {
   }
 }
 
+async function restoreMdictSourceAccess(source) {
+  try {
+    const health = await DictFloatMdictDB.requestLinkedSourceAccess(source.id);
+    source.status = health.ready ? 'ready' : (health.state || 'access');
+    source.connectionMessage = health.ready ? '' : String(health.message || 'Access confirmation required.');
+    await saveMdictSources(); renderDictionaryLibrary();
+    status(health.ready ? `Access restored for “${source.name}”.` : `${source.name}: ${source.connectionMessage}`, !health.ready);
+  } catch (error) { status(`Unable to restore access: ${error.message || error}`, true); }
+}
+
+async function restoreAllMdictAccess() {
+  const targets = mdictSources.filter((source) => source.status === 'access');
+  if (!targets.length) return;
+  let restored=0;
+  for (const source of targets) { const health=await DictFloatMdictDB.requestLinkedSourceAccess(source.id); source.status=health.ready?'ready':(health.state||'access'); source.connectionMessage=health.ready?'':String(health.message||'Access confirmation required.'); if(health.ready) restored+=1; }
+  await saveMdictSources(); renderDictionaryLibrary();
+  status(restored===targets.length ? `Access restored for ${restored} linked ${restored===1?'dictionary':'dictionaries'}.` : `Access restored for ${restored} of ${targets.length} linked dictionaries.`, restored!==targets.length);
+}
+
+async function handleLibraryConnectionAction() {
+  if (mdictSources.some((source) => ['missing','changed'].includes(source.status))) return reconnectDictionaryRoot();
+  return restoreAllMdictAccess();
+}
+
 async function reconnectMdictSource(source) {
   if (!('showDirectoryPicker' in window)) {
     status('Folder relinking needs a current Chrome desktop build.', true);
@@ -577,11 +592,11 @@ async function reconnectDictionaryRoot() {
     status('Folder relinking needs a current Chrome desktop build.', true);
     return;
   }
-  const missingMdictSources = mdictSources.filter((source) => source.status !== 'ready');
+  const missingMdictSources = mdictSources.filter((source) => ['missing', 'changed'].includes(source.status));
   const needsWudao = !!(wudaoSource?.configured && !wudaoSource?.installed);
   const targets = missingMdictSources.length + (needsWudao ? 1 : 0);
   if (!targets) {
-    status('No dictionary source needs reconnecting. Existing links were left unchanged.');
+    status('No linked dictionary file needs locating. Existing links were left unchanged.');
     return;
   }
   try {
@@ -903,37 +918,18 @@ function basename(filename) {
 function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function normalizeMdictSource(source) {
-  const status = source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'reconnect';
+  const states = new Set(['ready','access','missing','changed','rebuilding']);
+  let status = states.has(source.status) ? source.status : (source.status === 'reconnect' ? 'missing' : 'ready');
+  if (status === 'ready' && Number(source.recordCount || 0) <= 0) status = 'missing';
   return {
-    id: String(source.id || crypto.randomUUID()),
-    name: String(source.name || basename(source.fileName) || 'Untitled MDX dictionary'),
-    enabled: source.enabled !== false,
-    fileName: String(source.fileName || ''),
-    fileSize: Number(source.fileSize || 0),
-    lastModified: Number(source.lastModified || 0),
-    directoryPath: String(source.directoryPath || ''),
-    linkedFolderName: String(source.linkedFolderName || ''),
-    addedAt: Number(source.addedAt || Date.now()),
-    header: {
-      title: String(source.header?.title || ''),
-      description: String(source.header?.description || ''),
-      engineVersion: String(source.header?.engineVersion || ''),
-      encoding: String(source.header?.encoding || ''),
-      encrypted: String(source.header?.encrypted || '0'),
-      keyCaseSensitive: String(source.header?.keyCaseSensitive || ''),
-      stripKey: String(source.header?.stripKey || '')
-    },
-    lookup: {
-      caseSensitive: source.lookup?.caseSensitive === true,
-      stripKey: source.lookup?.stripKey !== false
-    },
-    mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles.map((item) => ({ name: String(item.name || ''), size: Number(item.size || 0), lastModified: Number(item.lastModified || 0) })) : [],
-    cssFiles: Array.isArray(source.cssFiles) ? source.cssFiles.map((item) => ({ name: String(item.name || ''), size: Number(item.size || 0), lastModified: Number(item.lastModified || 0) })) : [],
-    recordCount: Number(source.recordCount || 0),
-    parser: String(source.parser || ''),
-    cssMode: source.cssMode === 'compact' ? 'compact' : 'safe-original',
-    status,
-    connectionMessage: status === 'ready' ? '' : String(source.connectionMessage || 'Reconnect the dictionary root.')
+    id: String(source.id || crypto.randomUUID()), name: String(source.name || basename(source.fileName) || 'Untitled MDX dictionary'), enabled: source.enabled !== false,
+    fileName:String(source.fileName || ''), fileSize:Number(source.fileSize || 0), lastModified:Number(source.lastModified || 0), directoryPath:String(source.directoryPath || ''), linkedFolderName:String(source.linkedFolderName || ''), addedAt:Number(source.addedAt || Date.now()),
+    header:{ title:String(source.header?.title || ''), description:String(source.header?.description || ''), engineVersion:String(source.header?.engineVersion || ''), encoding:String(source.header?.encoding || ''), encrypted:String(source.header?.encrypted || '0'), keyCaseSensitive:String(source.header?.keyCaseSensitive || ''), stripKey:String(source.header?.stripKey || '') },
+    lookup:{ caseSensitive:source.lookup?.caseSensitive === true, stripKey:source.lookup?.stripKey !== false },
+    mddFiles:Array.isArray(source.mddFiles) ? source.mddFiles.map((item)=>({name:String(item.name||''),size:Number(item.size||0),lastModified:Number(item.lastModified||0)})) : [],
+    cssFiles:Array.isArray(source.cssFiles) ? source.cssFiles.map((item)=>({name:String(item.name||''),size:Number(item.size||0),lastModified:Number(item.lastModified||0)})) : [],
+    recordCount:Number(source.recordCount||0), parser:String(source.parser||''), cssMode:source.cssMode === 'compact'?'compact':'safe-original', status,
+    connectionMessage:status === 'ready' ? '' : String(source.connectionMessage || (status==='access'?'Access confirmation required.':'Linked MDX file is unavailable.'))
   };
 }
 
@@ -948,7 +944,7 @@ async function exportBackup() {
 
 function sourceForBackup(source) {
   const normalized = normalizeMdictSource(source);
-  return { ...normalized, status: 'reconnect' };
+  return { ...normalized, status: 'missing', connectionMessage: 'Saved MDX link is not included in backups.' };
 }
 
 function wudaoSourceForBackup(source) {
@@ -980,7 +976,7 @@ async function importBackup(event) {
       impact: [
         `${incomingEntries} editable ${incomingEntries === 1 ? 'entry' : 'entries'} · ${incomingGlossaries} ${incomingGlossaries === 1 ? 'glossary' : 'glossaries'} · ${incomingMdx} linked MDX record${incomingMdx === 1 ? '' : 's'}.`,
         'A recovery snapshot of the current state will be created first.',
-        'MDX/MDD links and Wudao data will need reconnecting after restoration.'
+        'MDX/MDD links and Wudao data files are not contained in backups. Locate only the dictionaries that are missing.'
       ],
       confirmLabel: 'Restore backup',
       requireText: 'RESTORE'
@@ -988,7 +984,7 @@ async function importBackup(event) {
     if (!approved) return;
     await createRecoverySnapshot(`Before restoring backup: ${file.name}`);
     await applyBackupPayload(parsed);
-    status(`Backup restored. Use Find missing dictionaries to restore ${mdictSources.length} MDX source${mdictSources.length === 1 ? '' : 's'}${wudaoSource.configured ? ' and Wudao' : ''}.`);
+    status(`Backup restored. Locate only the ${mdictSources.length} saved MDX source${mdictSources.length === 1 ? '' : 's'} that are missing${wudaoSource.configured ? ', then re-import Wudao' : ''}.`);
   } catch (error) {
     status(`Backup import failed: ${error.message || error}`, true);
   }
@@ -1001,8 +997,9 @@ async function applyBackupPayload(parsed) {
 
   entries = Array.isArray(parsed.entries) ? parsed.entries.map(normalizeEntry) : [];
   dictionaries = normalizeDictionaries(parsed.dictionaries);
+  migrateStarterGlossaryEntries();
   mdictSources = Array.isArray(parsed.mdictSources)
-    ? parsed.mdictSources.map((source) => normalizeMdictSource({ ...source, status: 'reconnect' }))
+    ? parsed.mdictSources.map((source) => normalizeMdictSource({ ...source, status: 'missing', connectionMessage: 'Saved MDX link is not included in backups.' }))
     : [];
   wudaoSource = parsed.wudaoSource
     ? normalizeWudaoSource({ ...parsed.wudaoSource, installed: false, enabled: false, configured: true, needsReconnect: true })
@@ -1030,6 +1027,7 @@ async function applyBackupPayload(parsed) {
     if (element.type === 'checkbox') element.checked = !!restoredSettings[key];
     else element.value = restoredSettings[key];
   }
+  applyAccent(restoredSettings.accent);
   await reconcileMdictSourceHealth();
   renderDictionaryLibrary();
   renderRecoverySnapshots();
@@ -1084,7 +1082,9 @@ async function importFile(event) {
     }
 
     let fallbackDictionary = null;
-    if (!incomingDictionaries.length && incoming.length) {
+    const incomingNames = new Set(incoming.map((entry) => String(entry.dictionary || '').trim().toLowerCase()).filter(Boolean));
+    const onlyStarterRows = incomingNames.size > 0 && [...incomingNames].every((name) => ['pcie starter', 'dictfloat glossary', 'dictfloat-glossary'].includes(name));
+    if (!incomingDictionaries.length && incoming.length && !onlyStarterRows) {
       fallbackDictionary = { id: crypto.randomUUID(), name: importedName, enabled: true, builtIn: false, sourceKind: 'imported', fileName: file.name, importedAt: Date.now(), createdAt: Date.now() };
       incomingDictionaries = [fallbackDictionary];
     }
@@ -1104,7 +1104,7 @@ async function importFile(event) {
       if (existing) Object.assign(existing, normalized);
       else dictionaries.push(normalized);
     });
-    const fallbackId = fallbackDictionary?.id || incomingDictionaries[0]?.id || 'my-glossary';
+    const fallbackId = fallbackDictionary?.id || incomingDictionaries[0]?.id || 'pcie-starter';
     incoming = incoming.map((entry) => normalizeEntry({
       ...entry,
       dictionaryId: entry.dictionaryId || dictionaryIdByName(entry.dictionary) || fallbackId,
@@ -1119,7 +1119,7 @@ async function importFile(event) {
       byKey.set(key, entry);
     });
     entries = [...byKey.values()];
-    incomingMdictSources.map((raw) => normalizeMdictSource({ ...raw, status: 'reconnect' })).forEach((source) => {
+    incomingMdictSources.map((raw) => normalizeMdictSource({ ...raw, status: 'missing', connectionMessage: 'Saved MDX link is not included in imports.' })).forEach((source) => {
       mdictSources = mdictSources.filter((item) => item.id !== source.id && !(item.fileName === source.fileName && item.fileSize === source.fileSize));
       mdictSources.push(source);
     });
@@ -1135,7 +1135,7 @@ async function importFile(event) {
       dictFloatSourceOrder: sourceOrder
     });
     renderDictionaryLibrary();
-    const recoveryHint = incomingMdictSources.length || incomingWudaoSource ? ' Use Find missing dictionaries to restore local files.' : '';
+    const recoveryHint = incomingMdictSources.length || incomingWudaoSource ? ' Locate only the imported missing dictionary records to restore local files.' : '';
     status(`Imported ${incoming.length - skippedDuplicates} editable ${incoming.length - skippedDuplicates === 1 ? 'entry' : 'entries'} from ${file.name}${skippedDuplicates ? ` · kept ${skippedDuplicates} existing duplicate${skippedDuplicates === 1 ? '' : 's'}` : ''}.${recoveryHint}`);
   } catch (error) {
     status(`Import failed: ${error.message}`, true);
@@ -1150,7 +1150,7 @@ async function clearEntries() {
     message: 'This is a high-impact change. All editable entries across every glossary will be removed.',
     impact: [
       `${count} editable ${count === 1 ? 'entry' : 'entries'} will be permanently removed from the active library.`,
-      'PCIe Starter, linked MDX/MDD dictionaries, Wudao, history, and settings will not be affected.',
+      'Linked MDX/MDD dictionaries, Wudao, history, and settings will not be affected.',
       'A recovery snapshot will be created first.'
     ],
     confirmLabel: `Clear ${count} ${count === 1 ? 'entry' : 'entries'}`,
@@ -1167,7 +1167,7 @@ async function clearEntries() {
 function normalizeEntry(entry) {
   return {
     id: entry.id || crypto.randomUUID(),
-    dictionaryId: String(entry.dictionaryId || dictionaryIdByName(entry.dictionary) || 'my-glossary'),
+    dictionaryId: String(entry.dictionaryId || dictionaryIdByName(entry.dictionary) || 'pcie-starter'),
     term: String(entry.term || '').trim(),
     aliases: arr(entry.aliases),
     chinese: String(entry.chinese || '').trim(),
@@ -1181,28 +1181,35 @@ function normalizeEntry(entry) {
   };
 }
 
-function normalizeDictionaries(input) {
-  const result = Array.isArray(input)
-    ? input.filter(Boolean).map((item) => ({
-      id: String(item.id || crypto.randomUUID()),
-      name: String(item.name || 'Untitled glossary').trim() || 'Untitled glossary',
-      enabled: item.enabled !== false,
-      builtIn: !!item.builtIn,
-      sourceKind: String(item.sourceKind || (item.fileName ? 'imported' : (item.builtIn ? 'built-in' : 'manual'))),
-      fileName: String(item.fileName || ''),
-      importedAt: Number(item.importedAt || 0),
-      createdAt: item.createdAt || Date.now()
-    }))
-    : [];
-  defaultDictionaries().forEach((item) => {
-    if (!result.some((dictionary) => dictionary.id === item.id)) result.push(item);
+function migrateStarterGlossaryEntries() {
+  const starter = dictionaries.find((dictionary) => dictionary.id === 'pcie-starter');
+  if (!starter) return false;
+  const legacy = dictionaries.filter((dictionary) => dictionary.id !== 'pcie-starter' && /^(?:pcie starter|dictfloat[- ]glossary)$/i.test(String(dictionary.name || '').trim()));
+  if (!legacy.length) return false;
+  const ids = new Set(legacy.map((dictionary) => dictionary.id));
+  let changed = false;
+  entries = entries.map((entry) => {
+    if (!ids.has(entry.dictionaryId)) return entry;
+    changed = true;
+    return { ...entry, dictionaryId: 'pcie-starter', updatedAt: Number(entry.updatedAt || Date.now()) };
   });
-  return result;
+  dictionaries = dictionaries.filter((dictionary) => !ids.has(dictionary.id));
+  return changed;
+}
+
+function normalizeDictionaries(input) {
+  const source = Array.isArray(input) ? input : [];
+  const mapped = source.filter(Boolean).map((item) => ({ id:String(item.id || crypto.randomUUID()), name:String(item.name || 'Untitled glossary').trim() || 'Untitled glossary', enabled:item.enabled !== false, builtIn:!!item.builtIn, locallyEditable:item.locallyEditable === true || String(item.id||'')==='pcie-starter', sourceKind:String(item.sourceKind || (item.builtIn?'built-in':'manual')), fileName:String(item.fileName||''), createdAt:Number(item.createdAt||Date.now()) }));
+  const starter=mapped.find((dictionary)=>dictionary.id==='pcie-starter');
+  if (!starter) mapped.unshift(defaultDictionaries()[0]);
+  else { if (starter.name === 'PCIe Starter') starter.name='DictFloat Glossary'; starter.builtIn=true; starter.locallyEditable=true; }
+  return mapped.filter((dictionary)=>!(dictionary.id==='my-glossary' && !entries.some((entry)=>entry.dictionaryId==='my-glossary')));
 }
 
 function dictionaryFor(id) { return dictionaries.find((dictionary) => dictionary.id === id); }
 function dictionaryIdByName(name) {
   const wanted = String(name || '').trim().toLowerCase();
+  if (['pcie starter', 'dictfloat glossary', 'dictfloat-glossary'].includes(wanted)) return 'pcie-starter';
   return dictionaries.find((dictionary) => dictionary.name.toLowerCase() === wanted)?.id;
 }
 function arr(value) {
@@ -1410,6 +1417,21 @@ function confirmRisk(options = {}) {
     else setTimeout(() => confirmButton.focus(), 0);
   });
 }
+
+let entryManagerDictionaryId = '';
+let entryEditorEntryId = '';
+function closeEntryManager(){ const d=$('entryManagerDialog'); if(d?.open)d.close(); entryManagerDictionaryId=''; }
+function openEntryManager(dictionary){ entryManagerDictionaryId=dictionary.id; $('entryManagerTitle').textContent=`${dictionary.name} · entries`; $('entryManagerSearch').value=''; renderEntryManager(); $('entryManagerDialog')?.showModal(); }
+function renderEntryManager(){ const list=$('entryManagerList'); if(!list||!entryManagerDictionaryId)return; const q=String($('entryManagerSearch')?.value||'').trim().toLocaleLowerCase(); const rows=entries.filter((entry)=>entry.dictionaryId===entryManagerDictionaryId).filter((entry)=>!q||[entry.term,entry.chinese,...(entry.aliases||[])].join(' ').toLocaleLowerCase().includes(q)).sort((a,b)=>String(a.term).localeCompare(String(b.term))); list.textContent=''; if(!rows.length){const e=document.createElement('div');e.className='entry-manager-empty';e.textContent=q?'No matching entries.':'No entries in this glossary yet.';list.append(e);return;} rows.forEach((entry)=>{const row=document.createElement('div');row.className='entry-manager-row';const info=document.createElement('div');info.className='entry-manager-info';const term=document.createElement('strong');term.textContent=entry.term;const sub=document.createElement('span');sub.textContent=[entry.aliases?.[0],entry.chinese].filter(Boolean).join(' · ');info.append(term,sub);row.append(info,makeButton('Edit',()=>openEntryEditor(entry)));list.append(row);}); }
+function closeEntryEditor(){ const d=$('entryEditorDialog');if(d?.open)d.close();entryEditorEntryId=''; }
+function openEntryEditor(entry){const dictionary=dictionaries.find((item)=>item.id===entryManagerDictionaryId);if(!dictionary)return;entryEditorEntryId=entry?.id||'';$('entryEditorTitle').textContent=entry?`Edit ${entry.term}`:`Add to ${dictionary.name}`;const v=entry||{term:'',aliases:[],chinese:'',definition:'',tags:[],related:[],category:'',source:dictionary.builtIn?'DictFloat Glossary':dictionary.name};const f=$('entryEditorForm');f.elements.term.value=v.term||'';f.elements.aliases.value=(v.aliases||[]).join(', ');f.elements.chinese.value=v.chinese||'';f.elements.definition.value=v.definition||'';f.elements.tags.value=(v.tags||[]).join(', ');f.elements.related.value=(v.related||[]).join(', ');f.elements.category.value=v.category||'';f.elements.source.value=v.source||'';const del=$('entryEditorDelete'); if(del) del.hidden=!entry; $('entryEditorDialog')?.showModal();setTimeout(()=>f.elements.term.focus(),0);}
+function splitList(value){return String(value||'').split(',').map((item)=>item.trim()).filter(Boolean);}
+async function deleteEntryFromManager(){
+  const entry=entries.find((item)=>item.id===entryEditorEntryId); if(!entry)return;
+  const approved=await confirmRisk({ title:`Delete “${entry.term}”?`, message:'This removes this editable entry from its glossary.', impact:['A small recovery snapshot will be created first.','Linked dictionaries and other entries are not affected.'], confirmLabel:'Delete entry' });
+  if(!approved)return; await createRecoverySnapshot(`Before deleting entry: ${entry.term}`); entries=entries.filter((item)=>item.id!==entry.id); await chrome.storage.local.set({dictFloatEntries:entries}); closeEntryEditor(); renderEntryManager(); renderDictionaryLibrary(); status('Entry deleted. A recovery snapshot is available below.');
+}
+async function saveEntryEditor(event){event.preventDefault();const f=$('entryEditorForm');const dictionary=dictionaries.find((item)=>item.id===entryManagerDictionaryId);if(!dictionary)return;const term=String(f.elements.term.value||'').trim();const definition=String(f.elements.definition.value||'').trim();if(!term||!definition){status('Term and definition are required.',true);return;}const base=entries.find((entry)=>entry.id===entryEditorEntryId)||{};const next=normalizeEntry({...base,id:base.id||crypto.randomUUID(),dictionaryId:dictionary.id,term,aliases:splitList(f.elements.aliases.value),chinese:String(f.elements.chinese.value||'').trim(),definition,tags:splitList(f.elements.tags.value),related:splitList(f.elements.related.value),category:String(f.elements.category.value||'').trim(),source:String(f.elements.source.value||'').trim(),updatedAt:Date.now()});if(entryEditorEntryId)entries=entries.map((entry)=>entry.id===entryEditorEntryId?next:entry);else entries.unshift(next);await chrome.storage.local.set({dictFloatEntries:entries});closeEntryEditor();renderEntryManager();renderDictionaryLibrary();status(entryEditorEntryId?'Entry updated.':'Entry added.');}
 
 function status(message, error = false) {
   const node = $('status');

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "Compact floating dictionary with selection lookup, online fallback, local glossaries, offline Wudao data packs, and MDX text lookup.",
   "permissions": [
     "storage",
@@ -47,5 +47,6 @@
         "<all_urls>"
       ]
     }
-  ]
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApcQL7CvE2TlE2YtRjYDnHzDOycYOWbBb/nWWTh5+OirpqrhfdehodI7M3GxV3b26OjPbZfR46juW01ZeZZ2Y1c2xOw2B+Cz66jLLDyT4Gvce46n2myil22A8ihO+dcMZW6jz4vLmZzcLS9SQqY3qWCuIgBiCTr6bOCabcT4bB0H8KGR/sF0Qd8yvFjnxrsx98u3jtRIMECD6FO+2sEA+XR+HaGZk4K4oqGOP0X184nKj70UkQsRwIdU+6Is4HbH34ibYo5H4QF9QSym81XjnOAuVwzh86x9jeqxOMnwLKCuEEg2FWwY1HF3RDEgn0aQIbeHSnQPB9Jc+aKbGOGLnLwIDAQAB"
 }

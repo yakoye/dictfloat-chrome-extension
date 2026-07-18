@@ -1,4 +1,4 @@
-# DictFloat v0.4.9 — Data safety & recovery snapshots
+# DictFloat v0.5.0 — Data safety & recovery snapshots
 
 ## What changed / 本版重点
 
@@ -50,3 +50,13 @@
 - A stale page script now handles Chrome's `Extension context invalidated` condition gracefully instead of leaving an unhandled promise error in DevTools.
 - If an old page script is still present after you press **Reload** in `chrome://extensions`, it shows a short in-panel notice: **“DictFloat was updated. Refresh this page to continue.”**
 - Toolbar actions, local storage writes, source-collapse state, drag-position persistence, and asynchronous lookup calls now use guarded extension API calls so the expected reload transition does not surface as an uncaught error.
+
+
+## v0.5.0
+
+- Stable development extension ID via the manifest public key. The first migration changes the unpacked extension ID once; export a backup from the previous build before loading this release, then import it and locate only any genuinely missing MDX sources.
+- Linked MDX sources distinguish **Ready**, **Access confirmation required**, **File missing**, and **File changed**.
+- Accent choices: Rose, Green, Blue.
+- The built-in DictFloat Glossary is locally editable; Settings includes an entry editor.
+- The floating window opens with a clean empty result area.
+- Selection bubble uses an anchored callout and tests four screen-safe positions to avoid fixed selection toolbars.

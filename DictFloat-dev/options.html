@@ -10,13 +10,13 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.4.9</div>
+      <div class="version">v0.5.0</div>
     </header>
 
     <section class="card">
       <h2>Selection lookup</h2>
       <p class="hint">Choose what happens after text is selected on a webpage.</p>
-      <label class="setting-row"><span>Mode</span><select id="selectionMode"><option value="bubble">Show pink lookup bubble</option><option value="auto">Open lookup window automatically</option><option value="off">Off</option></select></label>
+      <label class="setting-row"><span>Mode</span><select id="selectionMode"><option value="bubble">Show lookup bubble</option><option value="auto">Open lookup window automatically</option><option value="off">Off</option></select></label>
     </section>
 
     <section class="card">
@@ -25,6 +25,7 @@
         <label class="field"><span>Font size</span><span class="input-with-unit"><input id="fontSize" type="number" min="10" max="15" step="1"><small>px</small></span></label>
         <label class="field"><span>Panel width</span><span class="input-with-unit"><input id="panelWidth" type="number" min="320" max="520" step="10"><small>px</small></span></label>
         <label class="field"><span>Theme</span><select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label class="field"><span>Accent</span><select id="accent"><option value="rose">Rose</option><option value="green">Green</option><option value="blue">Blue</option></select></label>
       </div>
       <div class="inline-actions"><button id="resetWindowPosition" type="button">Reset window position</button></div>
       <p class="hint">Light uses an opaque white window, even when Chrome and the webpage are dark.</p>
@@ -91,6 +92,13 @@
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
+
+  <dialog id="entryManagerDialog" class="entry-manager-dialog" aria-labelledby="entryManagerTitle">
+    <div class="entry-manager-card"><div class="entry-manager-head"><h2 id="entryManagerTitle">Glossary entries</h2><button id="entryManagerClose" type="button" aria-label="Close">×</button></div><div class="entry-manager-tools"><input id="entryManagerSearch" type="search" placeholder="Search entries"><button id="entryManagerAdd" type="button">+ Add entry</button></div><div id="entryManagerList" class="entry-manager-list"></div></div>
+  </dialog>
+  <dialog id="entryEditorDialog" class="entry-manager-dialog" aria-labelledby="entryEditorTitle">
+    <div class="entry-manager-card entry-editor-card"><div class="entry-manager-head"><h2 id="entryEditorTitle">Edit entry</h2><button id="entryEditorCancel" type="button" aria-label="Close">×</button></div><form id="entryEditorForm" class="entry-editor-form"><label>Term *<input name="term" required></label><label>Chinese<input name="chinese"></label><label class="wide">Aliases<input name="aliases" placeholder="comma-separated"></label><label class="wide">Definition *<textarea name="definition" required></textarea></label><label>Tags<input name="tags" placeholder="comma-separated"></label><label>Related terms<input name="related" placeholder="comma-separated"></label><label>Category<input name="category"></label><label>Source<input name="source"></label><div class="actions entry-editor-actions"><button id="entryEditorDelete" class="danger" type="button" hidden>Delete</button><span class="grow"></span><button id="entryEditorCancelSecondary" type="button">Cancel</button><button type="submit">Save</button></div></form></div>
+  </dialog>
 
   <dialog id="safetyDialog" class="safety-dialog" aria-labelledby="safetyDialogTitle">
     <div class="safety-dialog-card">

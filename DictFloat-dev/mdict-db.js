@@ -99,49 +99,33 @@
   async function inspectLinkedSource(id) {
     const source = await getLinkedSource(id);
     if (!source || !source.mdxHandle || !source.index) {
-      return {
-        ready: false,
-        source: null,
-        code: 'missing-link',
-        message: 'Saved MDX link is missing. Reconnect the dictionary root.'
-      };
+      return { ready:false, source:source || null, state:'missing', code:'missing-link', message:'Saved MDX link is missing.' };
     }
     try {
-      const allowed = await hasReadPermission(source.mdxHandle);
-      if (!allowed) {
-        return {
-          ready: false,
-          source,
-          code: 'permission',
-          message: 'Folder permission needs reconnecting.'
-        };
-      }
+      const permission = source.mdxHandle.queryPermission ? await source.mdxHandle.queryPermission({ mode:'read' }) : 'granted';
+      if (permission !== 'granted') return { ready:false, source, state:'access', code:'permission', message:'Access confirmation required.' };
       const file = await source.mdxHandle.getFile();
-      if (!file) {
-        return {
-          ready: false,
-          source,
-          code: 'file-unavailable',
-          message: 'Linked MDX file is unavailable. Reconnect the dictionary root.'
-        };
-      }
+      if (!file) return { ready:false, source, state:'missing', code:'file-unavailable', message:'Linked MDX file is unavailable.' };
       if (Number(source.index?.fileSize || 0) && Number(source.index.fileSize) !== Number(file.size)) {
-        return {
-          ready: false,
-          source,
-          code: 'file-changed',
-          message: 'Linked MDX file changed. Rebuild or reconnect this dictionary.'
-        };
+        return { ready:false, source, state:'changed', code:'file-changed', message:'Linked MDX file changed. Rebuild its lightweight index.' };
       }
-      return { ready: true, source, code: 'ready', message: '' };
+      return { ready:true, source, state:'ready', code:'ready', message:'' };
     } catch (error) {
-      return {
-        ready: false,
-        source,
-        code: 'file-unavailable',
-        message: 'Linked MDX file is unavailable. Reconnect the dictionary root.',
-        detail: String(error?.message || error || '')
-      };
+      const missing=/notfound/i.test(String(error?.name || ''));
+      return { ready:false, source, state:missing?'missing':'access', code:missing?'file-unavailable':'permission', message:missing?'Linked MDX file is unavailable.':'Access confirmation required.', detail:String(error?.message || error || '') };
+    }
+  }
+
+  // Must run from a user gesture: restores access for the remembered source.
+  async function requestLinkedSourceAccess(id) {
+    const source = await getLinkedSource(id);
+    if (!source || !source.mdxHandle || !source.index) return { ready:false, source:source || null, state:'missing', code:'missing-link', message:'Saved MDX link is missing.' };
+    try {
+      const permission = source.mdxHandle.requestPermission ? await source.mdxHandle.requestPermission({ mode:'read' }) : 'granted';
+      if (permission !== 'granted') return { ready:false, source, state:'access', code:'permission', message:'Access was not granted.' };
+      return await inspectLinkedSource(id);
+    } catch (error) {
+      return { ready:false, source, state:'access', code:'permission', message:'Access confirmation required.', detail:String(error?.message || error || '') };
     }
   }
 
@@ -151,6 +135,7 @@
     deleteLinkedSource,
     clearLinkedSources,
     hasReadPermission,
-    inspectLinkedSource
+    inspectLinkedSource,
+    requestLinkedSourceAccess
   };
 })();

@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.4.9'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.0'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -31,7 +31,8 @@
     fontSize: 12,
     panelWidth: 380,
     theme: 'system',
-    onlineLookup: true
+    onlineLookup: true,
+    accent: 'rose'
   };
 
   const state = {
@@ -335,6 +336,11 @@
     return state.cssPromise;
   }
 
+  function applyAccent() {
+    const accent = ['rose', 'green', 'blue'].includes(state.settings.accent) ? state.settings.accent : 'rose';
+    if (state.host) state.host.dataset.accent = accent;
+  }
+
   async function ensureRoot(renderOnCreate = false) {
     if (!isCurrentInstance()) return false;
     // Serialize root creation. A toolbar click, a selection bubble and a repair
@@ -378,6 +384,7 @@
       }
       if (!isCurrentInstance() || !isOwnedHost(state.host)) return false;
       promoteHost(state.host);
+      applyAccent();
       pruneDuplicateRoots();
       if (renderOnCreate) render();
       return true;
@@ -817,10 +824,7 @@
       state.selectedId = null;
     }
 
-    if (!state.query.trim()) {
-      queryEntries('').slice(0, 8).forEach((entry) => box.append(resultItem(entry)));
-      return;
-    }
+    if (!state.query.trim()) return;
 
     appendOrderedLookupSections(box);
   }
@@ -1128,11 +1132,11 @@
     if (lookup.status === 'loading') {
       section.body.append(el('div', 'dictfloat-online-status', 'Searching linked MDX…'));
     } else if (lookup.status === 'error') {
-      const status = el('div', 'dictfloat-online-status', 'MDX link needs reconnecting.');
+      const status = el('div', 'dictfloat-online-status', /access confirmation|required/i.test(String(lookup.error || '')) ? 'MDX access confirmation required.' : 'MDX file needs locating.');
       status.title = lookup.error || '';
       const action = el('button', 'dictfloat-mdx-reconnect', 'Settings');
       action.type = 'button';
-      action.title = 'Open Settings and reconnect the dictionary root';
+      action.title = 'Open Settings and restore the linked dictionary connection';
       action.addEventListener('click', () => { void safeRuntimeSend({ type: 'DICTFLOAT_OPEN_OPTIONS' }).catch(handleAsyncError); });
       const line = el('div', 'dictfloat-mdx-error-line');
       line.append(status, action);
@@ -1711,7 +1715,7 @@
       id: String(source.id || crypto.randomUUID()),
       name: String(source.name || source.fileName || 'Untitled MDX dictionary'),
       enabled: source.enabled !== false,
-      status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'reconnect',
+      status: ['ready','access','missing','changed','rebuilding'].includes(source.status) ? source.status : (source.status === 'reconnect' ? 'missing' : (Number(source.recordCount || 0) > 0 ? 'ready' : 'missing')),
       parser: String(source.parser || ''),
       fileName: String(source.fileName || ''),
       fileSize: Number(source.fileSize || 0),
@@ -1741,23 +1745,12 @@
   }
 
   function normalizeDictionaries(input) {
-    const defaults = [
-      { id: 'pcie-starter', name: 'PCIe Starter', enabled: true, builtIn: true },
-      { id: 'my-glossary', name: 'My Glossary', enabled: true, builtIn: false }
-    ];
-    const dictionaries = Array.isArray(input)
-      ? input.filter(Boolean).map((item) => ({
-          id: String(item.id || crypto.randomUUID()),
-          name: String(item.name || 'Untitled glossary').trim() || 'Untitled glossary',
-          enabled: item.enabled !== false,
-          builtIn: !!item.builtIn,
-          createdAt: item.createdAt || Date.now()
-        }))
-      : [];
-    defaults.forEach((item) => {
-      if (!dictionaries.some((dictionary) => dictionary.id === item.id)) dictionaries.push(item);
-    });
-    return dictionaries;
+    const source = Array.isArray(input) ? input : [];
+    const mapped = source.filter(Boolean).map((item) => ({ id:String(item.id || crypto.randomUUID()), name:String(item.name || 'Untitled glossary').trim() || 'Untitled glossary', enabled:item.enabled !== false, builtIn:!!item.builtIn, locallyEditable:item.locallyEditable === true || String(item.id||'')==='pcie-starter', sourceKind:String(item.sourceKind || (item.builtIn?'built-in':'manual')), fileName:String(item.fileName||''), createdAt:Number(item.createdAt||Date.now()) }));
+    const starter=mapped.find((dictionary)=>dictionary.id==='pcie-starter');
+    if(!starter) mapped.unshift({id:'pcie-starter',name:'DictFloat Glossary',enabled:true,builtIn:true,locallyEditable:true,sourceKind:'built-in',createdAt:0});
+    else { if(starter.name==='PCIe Starter')starter.name='DictFloat Glossary'; starter.builtIn=true;starter.locallyEditable=true; }
+    return mapped.filter((dictionary)=>!(dictionary.id==='my-glossary' && !state.entries.some((entry)=>entry.dictionaryId==='my-glossary')));
   }
 
   function normalizeEntry(entry) {
@@ -1991,27 +1984,16 @@
     await ensureRoot(false);
     removeBubble();
     const bubble = el('button', 'dictfloat-bubble', '⌕');
-    bubble.type = 'button';
-    bubble.title = `Look up “${text.slice(0, 42)}”`;
-    bubble.setAttribute('aria-label', 'Look up selected text');
-    const bubbleSize = 26;
-    const edge = 6;
-    const gap = 7;
-    // Put the lookup control above the selection's right edge. It stays out
-    // of the natural left-to-right drag path, so users can keep extending a
-    // selection without running into a clickable element.
-    const left = Math.min(window.innerWidth - bubbleSize - edge, Math.max(edge, rect.right - bubbleSize));
-    const top = Math.min(window.innerHeight - bubbleSize - edge, Math.max(edge, rect.top - bubbleSize - gap));
-    bubble.style.cssText = `position:fixed;left:${left}px;top:${top}px;z-index:2147483647;pointer-events:auto;`;
+    bubble.type = 'button'; bubble.title = `Look up “${text.slice(0, 42)}”`; bubble.setAttribute('aria-label', 'Look up selected text');
+    const position = chooseBubblePosition(rect, 26, 7, 6);
+    bubble.dataset.anchor = position.anchor;
+    bubble.style.cssText = `position:fixed;left:${position.left}px;top:${position.top}px;z-index:2147483647;pointer-events:auto;`;
     bubble.addEventListener('mousedown', (event) => event.preventDefault());
-    bubble.addEventListener('click', () => {
-      removeBubble();
-      void openAndLookup(text);
-    });
-    state.mount.append(bubble);
-    showInTopLayer(bubble);
-    state.bubble = bubble;
+    bubble.addEventListener('click', () => { removeBubble(); void openAndLookup(text); });
+    state.mount.append(bubble); state.bubble = bubble;
   }
+  function chooseBubblePosition(rect,size,gap,edge){const raw=[{anchor:'above-right',left:rect.right-size,top:rect.top-size-gap},{anchor:'below-right',left:rect.right-size,top:rect.bottom+gap},{anchor:'above-left',left:rect.left,top:rect.top-size-gap},{anchor:'below-left',left:rect.left,top:rect.bottom+gap}];const candidates=raw.map((item)=>{const overflow=(item.left<edge?30:0)+(item.top<edge?30:0)+(item.left+size>window.innerWidth-edge?30:0)+(item.top+size>window.innerHeight-edge?30:0);return {...item,left:Math.min(window.innerWidth-size-edge,Math.max(edge,item.left)),top:Math.min(window.innerHeight-size-edge,Math.max(edge,item.top)),overflow};});return candidates.sort((a,b)=>(a.overflow+bubbleCollisionScore(a,size))-(b.overflow+bubbleCollisionScore(b,size)))[0];}
+  function bubbleCollisionScore(candidate,size){const points=[[candidate.left+size/2,candidate.top+size/2],[candidate.left+4,candidate.top+4],[candidate.left+size-4,candidate.top+size-4]];let score=0;for(const [x,y] of points){const nodes=document.elementsFromPoint?.(x,y)||[];for(const node of nodes.slice(0,6)){if(!(node instanceof Element)||state.host?.contains(node)||node===document.documentElement||node===document.body)continue;const style=getComputedStyle(node);const z=Number.parseInt(style.zIndex,10);const floating=['fixed','sticky'].includes(style.position)||(Number.isFinite(z)&&z>=1000);const semantic=/(?:menu|toolbar|popover|tooltip|selection|composer)/i.test(`${node.getAttribute('role')||''} ${node.className||''}`);if(floating||semantic)score+=10;}}return score;}
 
   function removeBubble() {
     hideFromTopLayer(state.bubble);
