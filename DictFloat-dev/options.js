@@ -204,6 +204,12 @@ function renderDictionaryLibrary() {
 }
 
 function makeLibraryBaseRow(index, key, enabled, title, kind, fileLine, stateLine, toggleHandler) {
+  // Defensive argument recovery: do not ever stringify a callback into the UI
+  // if a source row accidentally omits its state-line argument.
+  if (typeof stateLine === 'function' && toggleHandler === undefined) {
+    toggleHandler = stateLine;
+    stateLine = '';
+  }
   const row = document.createElement('div');
   row.className = 'dictionary-item library-source-item';
   row.dataset.sourceKey = key;
@@ -224,7 +230,7 @@ function makeLibraryBaseRow(index, key, enabled, title, kind, fileLine, stateLin
   check.type = 'checkbox';
   check.checked = enabled !== false;
   check.title = 'Include this source in lookup';
-  check.addEventListener('change', () => toggleHandler(check.checked));
+  check.addEventListener('change', () => { if (typeof toggleHandler === 'function') void toggleHandler(check.checked); });
   const info = document.createElement('div');
   info.className = 'dictionary-info';
   const titleLine = document.createElement('div');
@@ -241,7 +247,7 @@ function makeLibraryBaseRow(index, key, enabled, title, kind, fileLine, stateLin
   file.textContent = fileLine;
   const state = document.createElement('div');
   state.className = 'source-status';
-  state.textContent = stateLine;
+  state.textContent = typeof stateLine === 'string' ? stateLine : '';
   info.append(titleLine, file, state);
   const actions = document.createElement('div');
   actions.className = 'dictionary-actions library-actions';
@@ -317,9 +323,21 @@ function buildMdictLibraryRow(source, index) {
   const mdd = source.mddFiles.length ? `${source.mddFiles.length} MDD` : 'No MDD';
   const fileLine = `🔗 ${source.fileName || source.name} · ${formatSize(source.fileSize)} · ${css} · ${mdd}`;
   const labels = { ready:`Linked · on-demand lookup · ${source.cssMode === 'compact' ? 'Compact style' : 'Original CSS'}`, access:'Access confirmation required · the linked folder is still remembered', changed:'MDX file changed · rebuild its lightweight index', missing:'File link is missing · locate this dictionary only' };
-  const { row, actions } = makeLibraryBaseRow(index, sourceKeyForMdict(source), source.enabled, source.name, 'Linked MDX', labels[source.status] || labels.missing, async (checked) => {
-    source.enabled=checked; await saveMdictSources(); renderDictionaryLibrary(); status(`${source.name} ${checked ? 'enabled' : 'disabled'}.`);
-  });
+  const { row, actions } = makeLibraryBaseRow(
+    index,
+    sourceKeyForMdict(source),
+    source.enabled,
+    source.name,
+    'Linked MDX',
+    fileLine,
+    labels[source.status] || labels.missing,
+    async (checked) => {
+      source.enabled = checked;
+      await saveMdictSources();
+      renderDictionaryLibrary();
+      status(`${source.name} ${checked ? 'enabled' : 'disabled'}.`);
+    }
+  );
   actions.append(makeButton('Rename', () => renameMdictSource(source)));
   if (source.status === 'ready' || source.status === 'changed') actions.append(makeButton('Rebuild', () => rebuildMdictSource(source)));
   if (source.status === 'access') actions.append(makeButton('Restore access', () => restoreMdictSourceAccess(source)));
