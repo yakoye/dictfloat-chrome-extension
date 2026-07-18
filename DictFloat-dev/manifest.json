@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Compact floating dictionary with selection lookup, local glossaries, offline dictionaries, web-bridge translation, sentence translation APIs, multiple editable AI providers, and optional online results.",
   "permissions": [
     "storage",
