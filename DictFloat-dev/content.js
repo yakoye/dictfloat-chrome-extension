@@ -189,12 +189,9 @@
       if (entry) return fillEntry(box, entry);
     }
     if (!state.query.trim()) {
-      const welcome = el('div', 'dictfloat-empty');
-      welcome.innerHTML = '<div style="font-size:20px;margin-bottom:6px">⌕</div><strong>Search locally</strong><br><span>Type a word, phrase, abbreviation, or Chinese term.</span>';
-      box.append(welcome);
+      // Keep the idle state intentionally quiet. The search field is self-explanatory;
+      // show only a small local-term list when one exists.
       if (state.entries.length) {
-        const div = el('div', 'dictfloat-divider'); box.append(div);
-        const recent = el('div', 'dictfloat-meta', 'Starter glossary'); box.append(recent);
         state.entries.slice(0, 5).forEach(entry => box.append(resultItem(entry)));
       }
       return;
