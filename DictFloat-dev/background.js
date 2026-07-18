@@ -25,7 +25,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   await sendToTab(tab.id, { type: 'DICTFLOAT_TOGGLE' });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'DICTFLOAT_OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
     return;
@@ -49,7 +49,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'DICTFLOAT_BRIDGE_TRANSLATE') {
-    translateWithWebBridge(String(message.text || ''), Array.isArray(message.providers) ? message.providers : [])
+    translateWithWebBridge(String(message.text || ''), Array.isArray(message.providers) ? message.providers : [], sender?.tab?.id || null)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
@@ -292,12 +292,33 @@ function seedEntries() {
 // Experimental translation web bridges
 // ---------------------------------------------------------------------------
 const WEB_BRIDGE_PROVIDERS = {
-  youdao: { name: 'Youdao Web Bridge', url: 'https://fanyi.youdao.com/#/TextTranslate', queryUrl: 'https://fanyi.youdao.com/*' },
-  baidu: { name: 'Baidu Web Bridge', url: 'https://fanyi.baidu.com/mtpe-individual/transText', queryUrl: 'https://fanyi.baidu.com/*' },
-  doubao: { name: 'Doubao Web Bridge', url: 'https://www.doubao.com/chat/', queryUrl: 'https://www.doubao.com/*' }
+  // Youdao often redirects fanyi.youdao.com to f.youdao.com. Query both hosts
+  // and keep the bridge tab inactive so we do not create a new visible tab on
+  // every translation request after the redirect.
+  youdao: {
+    key: 'youdao',
+    name: 'Youdao Web Bridge',
+    url: 'https://f.youdao.com/#/TextTranslate',
+    queryUrls: ['https://fanyi.youdao.com/*', 'https://f.youdao.com/*'],
+    requiredPattern: /(?:fanyi|f)\.youdao\.com\/.*(?:TextTranslate|AITranslate|#\/TextTranslate|#\/AITranslate)/i
+  },
+  baidu: {
+    key: 'baidu',
+    name: 'Baidu Web Bridge',
+    url: 'https://fanyi.baidu.com/mtpe-individual/transText',
+    queryUrls: ['https://fanyi.baidu.com/*'],
+    requiredPattern: /fanyi\.baidu\.com\/mtpe-individual\/transText/i
+  },
+  doubao: {
+    key: 'doubao',
+    name: 'Doubao Web Bridge',
+    url: 'https://www.doubao.com/chat/',
+    queryUrls: ['https://www.doubao.com/*'],
+    requiredPattern: /www\.doubao\.com\/chat/i
+  }
 };
 
-async function translateWithWebBridge(rawText, providerKeys) {
+async function translateWithWebBridge(rawText, providerKeys, sourceTabId = null) {
   const text = String(rawText || '').trim().replace(/\s+/g, ' ');
   if (!text) throw new Error('No text to translate.');
   if (text.length > 8000) throw new Error('Selected text is too long for web bridge translation.');
@@ -306,35 +327,103 @@ async function translateWithWebBridge(rawText, providerKeys) {
   const errors = [];
   for (const key of ordered) {
     try {
-      const data = await translateWithOneWebBridge(key, text);
+      const data = await translateWithOneWebBridge(key, text, sourceTabId);
       if (data?.translation) return data;
       throw new Error('No translation returned.');
     } catch (error) {
-      errors.push(`${WEB_BRIDGE_PROVIDERS[key].name}: ${String(error?.message || error)}`);
+      errors.push(`${WEB_BRIDGE_PROVIDERS[key].name}: ${cleanBridgeError(error)}`);
+    } finally {
+      await restoreSourceTab(sourceTabId).catch(() => undefined);
     }
   }
   throw new Error(errors.join(' | ') || 'Web bridge translation failed.');
 }
 
-async function translateWithOneWebBridge(providerKey, text) {
+async function translateWithOneWebBridge(providerKey, text, sourceTabId = null) {
   const config = WEB_BRIDGE_PROVIDERS[providerKey];
-  const tab = await ensureBridgeTab(config);
-  await injectBridgeScript(tab.id);
-  const response = await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_WEB_BRIDGE_TRANSLATE', provider: providerKey, text });
+  const tab = await ensureBridgeTab(config, sourceTabId);
+  await restoreSourceTab(sourceTabId).catch(() => undefined);
+  const response = await sendBridgeRequest(tab.id, { type: 'DICTFLOAT_WEB_BRIDGE_TRANSLATE', provider: providerKey, text }, config, sourceTabId);
   if (!response?.ok) throw new Error(response?.error || `${config.name} failed.`);
   return { ...response.data, provider: config.name };
 }
 
-async function ensureBridgeTab(config) {
-  const tabs = await chrome.tabs.query({ url: config.queryUrl }).catch(() => []);
-  const existing = tabs.find((tab) => tab.id && !tab.discarded);
+async function ensureBridgeTab(config, sourceTabId = null) {
+  const tabs = await chrome.tabs.query({ url: config.queryUrls }).catch(() => []);
+  const existing = selectBestBridgeTab(tabs, config);
   if (existing?.id) {
     if (existing.status !== 'complete') await waitForTabComplete(existing.id, 12000).catch(() => undefined);
-    return existing;
+    if (needsBridgeNavigation(existing, config)) {
+      await chrome.tabs.update(existing.id, { url: config.url, active: false }).catch(() => undefined);
+      await waitForTabComplete(existing.id, 18000).catch(() => undefined);
+    }
+    await restoreSourceTab(sourceTabId).catch(() => undefined);
+    return await chrome.tabs.get(existing.id).catch(() => existing);
   }
-  const created = await chrome.tabs.create({ url: config.url, active: false });
+  const createOptions = { url: config.url, active: false };
+  const sourceTab = sourceTabId ? await chrome.tabs.get(sourceTabId).catch(() => null) : null;
+  if (sourceTab?.windowId != null) createOptions.windowId = sourceTab.windowId;
+  if (Number.isInteger(sourceTab?.index)) createOptions.index = sourceTab.index + 1;
+  const created = await chrome.tabs.create(createOptions);
+  await restoreSourceTab(sourceTabId).catch(() => undefined);
   await waitForTabComplete(created.id, 18000).catch(() => undefined);
+  await restoreSourceTab(sourceTabId).catch(() => undefined);
   return created;
+}
+
+function selectBestBridgeTab(tabs, config) {
+  const usable = (Array.isArray(tabs) ? tabs : []).filter((tab) => tab.id && !tab.discarded);
+  return usable.find((tab) => config.requiredPattern?.test(String(tab.url || ''))) || usable[0] || null;
+}
+
+function needsBridgeNavigation(tab, config) {
+  const url = String(tab?.url || '');
+  if (!url || /^chrome:|^edge:|^about:/i.test(url)) return false;
+  return config.requiredPattern && !config.requiredPattern.test(url);
+}
+
+async function restoreSourceTab(sourceTabId) {
+  if (!sourceTabId) return;
+  const tab = await chrome.tabs.get(sourceTabId).catch(() => null);
+  if (!tab?.id) return;
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
+  if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+}
+
+async function sendBridgeRequest(tabId, message, config, sourceTabId = null) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await injectBridgeScript(tabId);
+      await restoreSourceTab(sourceTabId).catch(() => undefined);
+      const response = await withTimeout(chrome.tabs.sendMessage(tabId, message), 90000, `${config.name} timed out.`);
+      if (response) return response;
+      throw new Error(`${config.name} returned no response.`);
+    } catch (error) {
+      lastError = error;
+      const messageText = String(error?.message || error || '');
+      const closed = /message channel closed|receiving end does not exist|could not establish connection|extension context invalidated/i.test(messageText);
+      if (!closed && attempt >= 1) break;
+      await waitForTabComplete(tabId, 12000).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 700 + attempt * 500));
+    }
+  }
+  throw new Error(`${config.name} bridge did not return a stable response. ${cleanBridgeError(lastError)}`.trim());
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), timeoutMs))
+  ]);
+}
+
+function cleanBridgeError(error) {
+  const text = String(error?.message || error || '').trim();
+  if (/A listener indicated an asynchronous response by returning true, but the message channel closed/i.test(text)) {
+    return 'the translation page reloaded before returning a result; retry after the page is fully loaded.';
+  }
+  return text || 'unknown error';
 }
 
 function waitForTabComplete(tabId, timeoutMs = 15000) {

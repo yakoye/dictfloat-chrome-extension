@@ -16,7 +16,8 @@
     const text = normalizeInput(rawText);
     if (!text) throw new Error('No text was provided.');
     await waitForPageReady();
-    await waitForAppSettled();
+    await ensureProviderRoute(provider);
+    await waitForAppSettled(provider);
     if (provider === 'doubao') return translateWithDoubao(text);
     if (provider === 'youdao') return translateWithGenericPage(text, provider);
     if (provider === 'baidu') return translateWithGenericPage(text, provider);
@@ -38,13 +39,23 @@
 
   async function translateWithGenericPage(text, provider) {
     const before = snapshotTextBlocks(provider);
-    const input = await waitForEditable(provider, 18000);
+    const input = await waitForEditable(provider, 22000);
     if (!input) throw new Error(`${providerLabel(provider)} input box was not found. Open the translation page once and try again.`);
     clearEditable(input);
-    await sleep(60);
+    await sleep(120);
     setEditableText(input, text);
-    await sleep(300);
-    clickTranslateButton(provider);
+
+    // Modern Youdao/Baidu pages usually translate automatically after input.
+    // Clicking a broad “Translate” link can switch to another product page, so
+    // first wait for an automatic result. Only try a conservative button click
+    // if nothing appears.
+    try {
+      const result = await waitForNewAnswer(before, { provider, minLength: 1, timeout: 9000, sourceText: text });
+      return { translation: cleanupAnswer(result), sourceText: text };
+    } catch (_) {}
+
+    const clicked = clickTranslateButton(provider);
+    if (!clicked) dispatchCommitKeys(input);
     const result = await waitForNewAnswer(before, { provider, minLength: 1, timeout: 45000, sourceText: text });
     return { translation: cleanupAnswer(result), sourceText: text };
   }
@@ -58,7 +69,23 @@
     if (document.readyState === 'complete' || document.readyState === 'interactive') return Promise.resolve();
     return new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
   }
-  async function waitForAppSettled() { await sleep(400); }
+  async function ensureProviderRoute(provider) {
+    // Do not reload pages that are already on the right feature; just normalize
+    // the SPA hash/path when the provider opened its generic landing page.
+    const href = location.href;
+    if (provider === 'youdao' && /(?:^|\.)youdao\.com$/i.test(location.hostname) && !/TextTranslate|AITranslate/i.test(href)) {
+      try { history.replaceState(null, '', `${location.origin}/#/TextTranslate`); } catch (_) { try { location.hash = '/TextTranslate'; } catch (_) {} }
+      await sleep(900);
+    }
+    if (provider === 'baidu' && location.hostname === 'fanyi.baidu.com' && !/mtpe-individual\/transText/i.test(href)) {
+      try { history.replaceState(null, '', `${location.origin}/mtpe-individual/transText`); } catch (_) {}
+      await sleep(900);
+    }
+  }
+
+  async function waitForAppSettled(provider = '') {
+    await sleep(provider === 'doubao' ? 900 : 1200);
+  }
 
   async function waitForEditable(provider, timeout = 15000) {
     const started = Date.now();
@@ -73,15 +100,17 @@
 
   function findProviderEditable(provider) {
     const selectors = provider === 'youdao' ? [
-      'textarea#js_fanyi_input', '#js_fanyi_input', '#inputOriginal',
-      'textarea[placeholder*="请输入"]', 'textarea[placeholder*="粘贴"]', 'textarea[placeholder*="输入"]',
+      'textarea#js_fanyi_input', '#js_fanyi_input', '#inputOriginal', '#inputOriginalText',
+      '[class*="input"] textarea', '[class*="Input"] textarea', '[class*="source"] textarea', '[class*="Source"] textarea',
+      'textarea[placeholder*="请输入"]', 'textarea[placeholder*="粘贴"]', 'textarea[placeholder*="输入"]', 'textarea[placeholder*="Enter"]',
       '[contenteditable="true"][data-placeholder*="输入"]', '[contenteditable="true"][placeholder*="输入"]',
-      '[role="textbox"]', 'textarea', 'input[type="text"]', '[contenteditable="true"]'
+      '[contenteditable="true"][data-placeholder*="Enter"]', '[role="textbox"]', 'textarea', 'input[type="text"]', '[contenteditable="true"]'
     ] : [
-      '#baidu_translate_input', 'textarea#baidu_translate_input', '#translate-input',
-      'textarea[placeholder*="请输入"]', 'textarea[placeholder*="粘贴"]', 'textarea[placeholder*="输入"]',
+      '#baidu_translate_input', 'textarea#baidu_translate_input', '#translate-input', '#inputOriginal', '#source-textarea',
+      '[class*="input"] textarea', '[class*="Input"] textarea', '[class*="source"] textarea', '[class*="Source"] textarea',
+      'textarea[placeholder*="请输入"]', 'textarea[placeholder*="粘贴"]', 'textarea[placeholder*="输入"]', 'textarea[placeholder*="Enter"]',
       '[contenteditable="true"][data-placeholder*="输入"]', '[contenteditable="true"][placeholder*="输入"]',
-      '[role="textbox"]', 'textarea', 'input[type="text"]', '[contenteditable="true"]'
+      '[contenteditable="true"][data-placeholder*="Enter"]', '[role="textbox"]', 'textarea', 'input[type="text"]', '[contenteditable="true"]'
     ];
     return firstVisible(selectors) || largestEditable();
   }
@@ -132,7 +161,13 @@
     } else {
       const selection = window.getSelection?.();
       try { const range = document.createRange(); range.selectNodeContents(node); selection?.removeAllRanges?.(); selection?.addRange?.(range); } catch (_) {}
-      node.textContent = text;
+      try {
+        document.execCommand?.('selectAll', false, null);
+        document.execCommand?.('insertText', false, text);
+      } catch (_) {
+        node.textContent = text;
+      }
+      if (!normalizeBlockText(node.innerText || node.textContent || '').includes(text.slice(0, 20))) node.textContent = text;
     }
     dispatchTextEvents(node, text);
   }
@@ -141,7 +176,9 @@
       new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }),
       new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }),
       new Event('change', { bubbles: true }),
-      new KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true })
+      new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }),
+      new KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true }),
+      new CompositionEvent('compositionend', { bubbles: true, data: text })
     ].forEach((event) => { try { node.dispatchEvent(event); } catch (_) {} });
   }
 
@@ -154,19 +191,33 @@
   }
   function clickTranslateButton(provider) {
     const providerSelectors = provider === 'youdao'
-      ? ['#js_fanyi_translate_btn', '.transBtn', '[class*="transBtn"]', '[class*="translateBtn"]']
-      : ['.translate-button', '[class*="translate-button"]', '[class*="trans-btn"]', '[class*="translateBtn"]'];
+      ? ['#js_fanyi_translate_btn', 'button.transBtn', 'button[class*="transBtn"]', 'button[class*="translateBtn"]', '[role="button"][class*="trans"]']
+      : ['button.translate-button', 'button[class*="translate-button"]', 'button[class*="trans-btn"]', 'button[class*="translateBtn"]', '[role="button"][class*="trans"]'];
     for (const selector of providerSelectors) {
       const button = Array.from(document.querySelectorAll(selector)).find(isClickable);
-      if (button) { button.click(); return true; }
+      if (button && isSafeTranslateControl(button)) { button.click(); return true; }
     }
-    return clickButtonByText(/^(翻译|Translate)$/i) || clickButtonByText(/翻译|Translate|开始|转写|提交/i) || false;
+    return clickButtonByText(/^(翻译|Translate)$/i) || false;
   }
   function clickButtonByText(pattern) {
-    const buttons = Array.from(document.querySelectorAll('button,[role="button"],a,input[type="button"],input[type="submit"]'));
-    const target = buttons.find((node) => isClickable(node) && pattern.test(buttonText(node)));
+    // Do not click anchors: on Youdao/Baidu many visible “Translate” texts are
+    // navigation links to a different translation product. Buttons only.
+    const buttons = Array.from(document.querySelectorAll('button,[role="button"],input[type="button"],input[type="submit"]'));
+    const target = buttons.find((node) => isClickable(node) && isSafeTranslateControl(node) && pattern.test(buttonText(node)));
     if (target) { target.click(); return true; }
     return false;
+  }
+  function isSafeTranslateControl(node) {
+    const text = buttonText(node);
+    const href = String(node.getAttribute?.('href') || '');
+    if (href) return false;
+    if (/文档|图片|人工|专业|同传|下载|登录|会员|客户端|App|APP|插件/.test(text)) return false;
+    const rect = node.getBoundingClientRect?.();
+    return !rect || (rect.width <= 260 && rect.height <= 90);
+  }
+  function dispatchCommitKeys(node) {
+    try { node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true, bubbles: true })); } catch (_) {}
+    try { node.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true, bubbles: true })); } catch (_) {}
   }
   function buttonText(node) { return String(node.innerText || node.textContent || node.value || node.getAttribute('aria-label') || node.title || '').replace(/\s+/g, ' ').trim(); }
   function isClickable(node) { return isVisible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true'; }
@@ -204,9 +255,9 @@
     const selectors = provider === 'doubao' ? [
       '[data-testid="message_text_content"]', '[data-testid="union_message"]', '[class*="message"] [class*="content"]', '[role="article"]'
     ] : provider === 'youdao' ? [
-      '#js_fanyi_output_resultOutput', '#js_fanyi_output_result', '.transTarget', '[class*="transTarget"]', '[class*="target"]', '[class*="Target"]', '[class*="output"]', '[class*="Output"]', '[class*="result"]', '[class*="Result"]'
+      '#js_fanyi_output_resultOutput', '#js_fanyi_output_result', '.transTarget', '[class*="transTarget"]', '[class*="target"]', '[class*="Target"]', '[class*="output"]', '[class*="Output"]', '[class*="result"]', '[class*="Result"]', '[class*="translated"]', '[class*="Translated"]'
     ] : provider === 'baidu' ? [
-      '#translate-output', '#transTarget', '[class*="trans-right"]', '[class*="target"]', '[class*="Target"]', '[class*="output"]', '[class*="Output"]', '[class*="result"]', '[class*="Result"]'
+      '#translate-output', '#transTarget', '#trans-result', '[class*="trans-right"]', '[class*="target"]', '[class*="Target"]', '[class*="output"]', '[class*="Output"]', '[class*="result"]', '[class*="Result"]', '[class*="translated"]', '[class*="Translated"]'
     ] : [
       '[data-testid="message_text_content"]', '[data-testid="union_message"]', '[class*="result"]', '[class*="Result"]', '[class*="target"]', '[class*="Target"]', '[class*="output"]', '[class*="Output"]', '[class*="translation"]', '[class*="Translation"]', '[class*="trans"]', '[class*="Trans"]', '[role="article"]', 'main p', 'section p'
     ];

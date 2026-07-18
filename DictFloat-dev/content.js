@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.1'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.2'; }
   })();
   // Generated at package time from content.css. Keeping the stylesheet inside
   // the content script avoids a chrome-extension:// fetch from pages with
@@ -2401,17 +2401,29 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     const sideGap = 7;
     const verticalGap = Math.max(5, gap);
     const pointer = state.selectionPointer;
-    const direction = pointer && Number.isFinite(pointer.startX) && Number.isFinite(pointer.endX)
-      ? (pointer.endX < pointer.startX - 3 ? 'left' : 'right')
-      : 'right';
+    const hasFreshPointer = pointer
+      && Number.isFinite(pointer.startX) && Number.isFinite(pointer.startY)
+      && Number.isFinite(pointer.endX) && Number.isFinite(pointer.endY)
+      && (Date.now() - Number(pointer.at || 0)) < 2500;
+    const direction = hasFreshPointer && pointer.endX < pointer.startX - 3 ? 'left' : 'right';
     const preferredSide = direction === 'left' ? 'left' : 'right';
     const oppositeSide = preferredSide === 'left' ? 'right' : 'left';
-    const sideLeft = (side) => side === 'left' ? rect.left - size - sideGap : rect.right + sideGap;
+
+    // For multi-line paragraph selection, Range#getClientRects() produces a
+    // large bounding box whose right edge may be far away from the actual mouse
+    // release point. Anchor the bubble to the pointer end when available, and
+    // fall back to the range edge only for keyboard selection.
+    const anchorX = hasFreshPointer ? pointer.endX : (preferredSide === 'left' ? rect.left : rect.right);
+    const anchorY = hasFreshPointer ? pointer.endY : rect.bottom;
+    const sideLeftFromAnchor = (side) => side === 'left' ? anchorX - size - sideGap : anchorX + sideGap;
+    const sideLeftFromRect = (side) => side === 'left' ? rect.left - size - sideGap : rect.right + sideGap;
     const raw = [
-      { anchor: `below-${preferredSide}`, left: sideLeft(preferredSide), top: rect.bottom + verticalGap, preferred: true },
-      { anchor: `above-${preferredSide}`, left: sideLeft(preferredSide), top: rect.top - size - verticalGap },
-      { anchor: `below-${oppositeSide}`, left: sideLeft(oppositeSide), top: rect.bottom + verticalGap },
-      { anchor: `above-${oppositeSide}`, left: sideLeft(oppositeSide), top: rect.top - size - verticalGap }
+      { anchor: `below-${preferredSide}`, left: sideLeftFromAnchor(preferredSide), top: anchorY + verticalGap, preferred: true },
+      { anchor: `above-${preferredSide}`, left: sideLeftFromAnchor(preferredSide), top: anchorY - size - verticalGap },
+      { anchor: `below-${oppositeSide}`, left: sideLeftFromAnchor(oppositeSide), top: anchorY + verticalGap },
+      { anchor: `above-${oppositeSide}`, left: sideLeftFromAnchor(oppositeSide), top: anchorY - size - verticalGap },
+      { anchor: `rect-below-${preferredSide}`, left: sideLeftFromRect(preferredSide), top: rect.bottom + verticalGap },
+      { anchor: `rect-above-${preferredSide}`, left: sideLeftFromRect(preferredSide), top: rect.top - size - verticalGap }
     ];
     const candidates = raw.map((item) => {
       const overflow = (item.left < edge ? 30 : 0)
