@@ -1,7 +1,7 @@
-importScripts('mdict-db.js');
+importScripts('mdict-db.js', 'mdict-core.js');
 
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.3.7';
+const CONTENT_RUNTIME_VERSION = '0.3.8';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -50,6 +50,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'DICTFLOAT_WUDAO_RESET') {
     wudaoIndexCache.clear();
+    sendResponse({ ok: true });
+    return;
+  }
+  if (message?.type === 'DICTFLOAT_MDICT_CLEAR_CACHE') {
+    globalThis.DictFloatMdictCore?.clearCache?.(message.sourceId || '');
     sendResponse({ ok: true });
     return;
   }
@@ -161,14 +166,10 @@ function inferDictionaryId(entry) {
 async function lookupMdict(source, rawQuery) {
   const query = String(rawQuery || '').trim();
   if (!query || !source?.id) return null;
-  if (!globalThis.DictFloatMdictDB) throw new Error('MDX storage is unavailable.');
-  const row = await DictFloatMdictDB.getEntry(source, query);
-  if (!row?.values?.length) return null;
-  return {
-    term: row.values[0].term || query,
-    definitions: row.values.map((item) => ({ term: item.term || query, definition: item.definition || '' })),
-    sourceId: source.id
-  };
+  if (!globalThis.DictFloatMdictDB || !globalThis.DictFloatMdictCore) throw new Error('MDX reader is unavailable. Reload DictFloat.');
+  const linked = await DictFloatMdictDB.getLinkedSource(source.id);
+  if (!linked) throw new Error('Dictionary link is missing. Open Settings and reconnect its folder.');
+  return DictFloatMdictCore.lookupLinkedSource(linked, query);
 }
 
 async function lookupOnline(rawQuery) {

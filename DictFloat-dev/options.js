@@ -42,8 +42,8 @@ async function init() {
   ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup'].forEach((id) => $(id).addEventListener('change', saveSettings));
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('addDictionary').addEventListener('click', addDictionary);
-  $('importMdictFiles').addEventListener('change', importMdictFiles);
-  $('importMdictFolder').addEventListener('change', importMdictFiles);
+  $('connectMdictFolder').addEventListener('click', connectMdictFolder);
+  $('cancelMdictIndex').addEventListener('click', cancelMdictIndex);
   $('importWudaoFiles').addEventListener('change', importWudaoFiles);
   $('removeWudaoPack').addEventListener('click', removeWudaoPack);
   $('exportJson').addEventListener('click', exportJson);
@@ -179,7 +179,7 @@ function knownLookupSources() {
   }
   mdictSources.forEach((source) => sources.push({
     key: sourceKeyForMdict(source), type: 'MDX / MDD', name: source.name,
-    meta: source.status === 'ready' ? `${(source.recordCount || 0).toLocaleString()} indexed text entries` : 'Reimport required to build the text index',
+    meta: source.status === 'ready' ? `${(source.recordCount || 0).toLocaleString()} headwords · linked, on-demand text` : 'Reconnect folder to create a lightweight index',
     enabled: source.enabled !== false
   }));
   sources.push({ key: 'online', type: 'Online', name: 'Online', meta: 'Public online fallback', enabled: $('onlineLookup')?.checked !== false });
@@ -239,63 +239,198 @@ async function moveSource(key, delta) {
   status('Lookup order saved. The first source is shown first.');
 }
 
-async function importMdictFiles(event) {
-  const files = [...(event.target.files || [])];
-  event.target.value = '';
-  if (!files.length) return;
-  const mdxFiles = files.filter((file) => file.name.toLowerCase().endsWith('.mdx'));
-  const mddFiles = files.filter((file) => file.name.toLowerCase().endsWith('.mdd'));
-  if (!mdxFiles.length) {
-    status('Choose at least one .mdx file.', true);
-    return;
-  }
-  if (!globalThis.DictFloatMdictCore || !globalThis.DictFloatMdictDB) {
-    status('The MDX decoder did not load. Reload the Settings page and try again.', true);
-    return;
-  }
 
-  const imported = [];
+let activeMdictWorker = null;
+let activeMdictRequestId = '';
+
+async function connectMdictFolder() {
+  if (!('showDirectoryPicker' in window)) {
+    status('This Chrome build does not support folder linking. Update Chrome and try again.', true);
+    return;
+  }
   try {
-    for (let index = 0; index < mdxFiles.length; index += 1) {
-      const mdx = mdxFiles[index];
-      status(`Importing ${mdx.name} (${index + 1}/${mdxFiles.length})…`);
-      const parsed = await DictFloatMdictCore.parseMdx(mdx, {
-        onProgress: (progress) => status(`${mdx.name}: ${progress.message}`)
-      });
-      const base = basename(mdx.name);
-      const basePattern = new RegExp('^' + escapeRegExp(base) + '(?:\\.\\d+)?$', 'i');
-      const matchingMdds = mddFiles.filter((file) => basePattern.test(basename(file.name)));
-      const source = normalizeMdictSource({
-        id: crypto.randomUUID(),
-        name: parsed.header.title || base,
-        enabled: true,
-        fileName: mdx.name,
-        fileSize: mdx.size,
-        lastModified: mdx.lastModified,
-        addedAt: Date.now(),
-        header: parsed.header,
-        lookup: parsed.lookup,
-        mddFiles: matchingMdds.map((file) => ({ name: file.name, size: file.size, lastModified: file.lastModified })),
-        recordCount: parsed.entries.length,
-        parser: 'dictfloat-mdx-text-v1',
-        status: 'ready'
-      });
-      const storedCount = await DictFloatMdictDB.replacePack(source, parsed.entries);
-      source.recordCount = storedCount;
-      mdictSources = mdictSources.filter((item) => !(item.fileName === source.fileName && item.fileSize === source.fileSize));
+    const folderHandle = await window.showDirectoryPicker({ mode: 'read' });
+    const files = await collectDirectoryFiles(folderHandle);
+    const mdxCandidates = selectMdxCandidates(files);
+    if (!mdxCandidates.length) throw new Error('No .mdx file was found in the selected folder.');
+
+    const imported = [];
+    for (let index = 0; index < mdxCandidates.length; index += 1) {
+      const candidate = mdxCandidates[index];
+      status(`Connecting ${candidate.name} (${index + 1}/${mdxCandidates.length})…`);
+      const existing = mdictSources.find((item) => item.fileName === candidate.name && item.directoryPath === candidate.directoryPath);
+      const source = await linkMdictCandidate(folderHandle, candidate, files, existing?.id || null);
+      mdictSources = mdictSources.filter((item) => item.id !== source.id && !(item.fileName === source.fileName && item.directoryPath === source.directoryPath));
       mdictSources.unshift(source);
       imported.push(source);
+      await saveMdictSources();
+      renderMdictSources();
+      renderSourceOrder();
     }
+    status(`Connected ${imported.length} MDX dictionar${imported.length === 1 ? 'y' : 'ies'} with lightweight, on-demand lookup.`);
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    status(`MDX connection failed: ${error.message || error}`, true);
+  } finally {
+    setMdictIndexBusy(false);
+  }
+}
+
+async function reconnectMdictSource(source) {
+  if (!('showDirectoryPicker' in window)) {
+    status('Folder relinking needs a current Chrome desktop build.', true);
+    return;
+  }
+  try {
+    const folderHandle = await window.showDirectoryPicker({ mode: 'read' });
+    const files = await collectDirectoryFiles(folderHandle);
+    const candidate = files.find((item) => item.kind === 'file' && /\.mdx$/i.test(item.name) && item.name === source.fileName)
+      || selectMdxCandidates(files).find((item) => basename(item.name) === basename(source.fileName));
+    if (!candidate) throw new Error(`Could not find ${source.fileName} in the selected folder.`);
+    status(`Reconnecting ${candidate.name}…`);
+    const linked = await linkMdictCandidate(folderHandle, candidate, files, source.id);
+    const at = mdictSources.findIndex((item) => item.id === source.id);
+    if (at >= 0) mdictSources[at] = linked;
+    else mdictSources.unshift(linked);
     await saveMdictSources();
     renderMdictSources();
     renderSourceOrder();
-    const total = imported.reduce((sum, source) => sum + source.recordCount, 0);
-    status(`Imported ${imported.length} MDX dictionar${imported.length === 1 ? 'y' : 'ies'} with ${total.toLocaleString()} local text entries.`);
+    status(`Reconnected “${linked.name}”.`);
   } catch (error) {
-    renderMdictSources();
-    renderSourceOrder();
-    status(`MDX import failed: ${error.message}`, true);
+    if (error?.name === 'AbortError') return;
+    status(`Reconnect failed: ${error.message || error}`, true);
+  } finally {
+    setMdictIndexBusy(false);
   }
+}
+
+function cancelMdictIndex() {
+  if (activeMdictWorker) {
+    activeMdictWorker.postMessage({ type: 'cancel' });
+    status('Cancelling lightweight index…');
+  }
+}
+
+function setMdictIndexBusy(busy) {
+  const connect = $('connectMdictFolder');
+  const cancel = $('cancelMdictIndex');
+  if (connect) connect.disabled = !!busy;
+  if (cancel) cancel.hidden = !busy;
+}
+
+async function collectDirectoryFiles(directoryHandle) {
+  const output = [];
+  async function walk(handle, path = '') {
+    for await (const [name, child] of handle.entries()) {
+      const relativePath = path ? `${path}/${name}` : name;
+      if (child.kind === 'directory') await walk(child, relativePath);
+      else output.push({ kind: 'file', name, path: relativePath, directoryPath: path, handle: child });
+    }
+  }
+  await walk(directoryHandle);
+  return output;
+}
+
+function selectMdxCandidates(files) {
+  const all = files.filter((item) => item.kind === 'file' && /\.mdx$/i.test(item.name));
+  const byDirectory = new Map();
+  all.forEach((item) => {
+    const list = byDirectory.get(item.directoryPath) || [];
+    list.push(item); byDirectory.set(item.directoryPath, list);
+  });
+  const picked = [];
+  byDirectory.forEach((list) => {
+    const preferred = list.find((item) => !/(大小写不敏感|case[- ]?insensitive)/i.test(item.name)) || list[0];
+    picked.push(preferred);
+  });
+  return picked;
+}
+
+function resourcesForCandidate(candidate, files) {
+  const own = files.filter((item) => item.kind === 'file' && (item.directoryPath === candidate.directoryPath || item.directoryPath.startsWith(`${candidate.directoryPath}/`)));
+  const base = basename(candidate.name);
+  const mdds = own.filter((item) => /\.mdd$/i.test(item.name) && new RegExp(`^${escapeRegExp(base)}(?:\\.\\d+)?\\.mdd$`, 'i').test(item.name));
+  const css = own.filter((item) => /\.css$/i.test(item.name));
+  return { mdds, css };
+}
+
+async function linkMdictCandidate(folderHandle, candidate, allFiles, reuseId) {
+  const file = await candidate.handle.getFile();
+  setMdictIndexBusy(true);
+  const index = await buildLightMdictIndex(file, (progress) => {
+    const percentage = Number.isFinite(progress?.fraction) ? ` ${Math.round(progress.fraction * 100)}%` : '';
+    status(`${candidate.name}: ${progress?.message || 'Building lightweight index…'}${percentage}`);
+  });
+  const resources = resourcesForCandidate(candidate, allFiles);
+  const source = normalizeMdictSource({
+    id: reuseId || crypto.randomUUID(),
+    name: index.header?.title || basename(candidate.name),
+    enabled: true,
+    fileName: candidate.name,
+    fileSize: file.size,
+    lastModified: file.lastModified,
+    directoryPath: candidate.directoryPath,
+    linkedFolderName: folderHandle.name || 'Selected folder',
+    addedAt: Date.now(),
+    header: index.header,
+    lookup: index.lookup,
+    mddFiles: await Promise.all(resources.mdds.map(async (item) => {
+      const resource = await item.handle.getFile();
+      return { name: item.path, size: resource.size, lastModified: resource.lastModified };
+    })),
+    cssFiles: await Promise.all(resources.css.map(async (item) => {
+      const resource = await item.handle.getFile();
+      return { name: item.path, size: resource.size, lastModified: resource.lastModified };
+    })),
+    recordCount: index.entryCount,
+    parser: 'dictfloat-linked-mdx-v1',
+    cssMode: resources.css.length ? 'safe-original' : 'compact',
+    status: 'ready'
+  });
+  index.fileSize = file.size;
+  index.lastModified = file.lastModified;
+  await DictFloatMdictDB.putLinkedSource({
+    id: source.id,
+    folderHandle,
+    mdxHandle: candidate.handle,
+    mddHandles: resources.mdds.map((item) => ({ name: item.path, handle: item.handle })),
+    cssHandles: resources.css.map((item) => ({ name: item.path, handle: item.handle })),
+    index,
+    cssMode: source.cssMode,
+    linkedAt: Date.now()
+  });
+  await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_CLEAR_CACHE', sourceId: source.id });
+  return source;
+}
+
+function buildLightMdictIndex(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(chrome.runtime.getURL('mdict-worker.js'));
+    const requestId = crypto.randomUUID();
+    activeMdictWorker = worker;
+    activeMdictRequestId = requestId;
+    worker.onmessage = (event) => {
+      const message = event.data || {};
+      if (message.requestId !== requestId) return;
+      if (message.type === 'progress') onProgress(message.progress || {});
+      if (message.type === 'done') {
+        worker.terminate();
+        if (activeMdictRequestId === requestId) { activeMdictWorker = null; activeMdictRequestId = ''; }
+        resolve(message.index);
+      }
+      if (message.type === 'error') {
+        worker.terminate();
+        if (activeMdictRequestId === requestId) { activeMdictWorker = null; activeMdictRequestId = ''; }
+        reject(Object.assign(new Error(message.error || 'MDX index failed.'), { name: message.name || 'Error' }));
+      }
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      if (activeMdictRequestId === requestId) { activeMdictWorker = null; activeMdictRequestId = ''; }
+      reject(new Error(event.message || 'MDX index worker failed.'));
+    };
+    worker.postMessage({ type: 'build-index', requestId, file });
+  });
 }
 
 function renderMdictSources() {
@@ -304,7 +439,7 @@ function renderMdictSources() {
   if (!mdictSources.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-list';
-    empty.textContent = 'No MDX / MDD source has been imported yet.';
+    empty.textContent = 'No linked MDX dictionary yet.';
     list.append(empty);
     return;
   }
@@ -315,12 +450,14 @@ function renderMdictSources() {
     const enabled = document.createElement('input');
     enabled.type = 'checkbox';
     enabled.checked = source.enabled !== false;
-    enabled.title = 'Enable this MDX source in DictFloat lookup order';
+    enabled.title = 'Include this MDX source in lookup';
     enabled.addEventListener('change', async () => {
       source.enabled = enabled.checked;
       await saveMdictSources();
+      renderSourceOrder();
       status(`${source.name} ${enabled.checked ? 'enabled' : 'disabled'}.`);
     });
+
     const info = document.createElement('div');
     info.className = 'dictionary-info';
     const name = document.createElement('div');
@@ -328,28 +465,90 @@ function renderMdictSources() {
     name.textContent = source.name;
     const meta = document.createElement('div');
     meta.className = 'dictionary-meta';
-    const engine = source.header.engineVersion ? `Engine ${source.header.engineVersion}` : 'MDict header';
-    const encoding = source.header.encoding || 'encoding unknown';
-    const mdd = source.mddFiles.length ? `${source.mddFiles.length} MDD file${source.mddFiles.length === 1 ? '' : 's'} detected` : 'no MDD resources';
-    meta.textContent = `${source.fileName} · ${formatSize(source.fileSize)} · ${engine} · ${encoding} · ${mdd}`;
-    const state = document.createElement('div');
-    state.className = 'source-status';
-    state.textContent = source.status === 'ready'
-      ? `Text lookup ready · ${(source.recordCount || 0).toLocaleString()} entries${source.mddFiles.length ? ' · MDD media pending' : ''}`
-      : 'Reimport required · this older source has header metadata only';
-    info.append(name, meta, state);
+    const engine = source.header.engineVersion ? `Engine ${source.header.engineVersion}` : 'MDict';
+    const resources = [
+      `${(source.recordCount || 0).toLocaleString()} headwords`,
+      source.cssFiles.length ? `${source.cssFiles.length} CSS` : 'compact style',
+      source.mddFiles.length ? `${source.mddFiles.length} MDD ignored` : 'no MDD'
+    ].join(' · ');
+    meta.textContent = `${source.fileName || source.name} · ${formatSize(source.fileSize)} · ${engine} · ${resources}`;
+    const sourceState = document.createElement('div');
+    sourceState.className = 'source-status';
+    sourceState.textContent = source.status === 'ready'
+      ? `Linked · on-demand lookup · ${source.linkedFolderName || 'selected folder'}`
+      : 'Reconnect required · no raw MDX was copied into Chrome';
+    info.append(name, meta, sourceState);
+
     const actions = document.createElement('div');
     actions.className = 'dictionary-actions';
+    if (source.status === 'ready') actions.append(makeButton('Rebuild', () => rebuildMdictSource(source)));
+    else actions.append(makeButton('Reconnect', () => reconnectMdictSource(source)));
+    if (source.cssFiles.length) {
+      const style = makeButton(source.cssMode === 'compact' ? 'Style: Compact' : 'Style: Original', () => toggleMdictStyle(source));
+      style.title = 'Toggle safe original CSS / DictFloat compact style';
+      actions.append(style);
+    }
     actions.append(makeButton('Remove', () => removeMdictSource(source), 'delete'));
     row.append(enabled, info, actions);
     list.append(row);
   });
 }
 
+async function rebuildMdictSource(source) {
+  try {
+    const linked = await DictFloatMdictDB.getLinkedSource(source.id);
+    if (!linked?.mdxHandle) throw new Error('The original linked folder is not available. Use Reconnect.');
+    const allowed = !linked.mdxHandle.queryPermission || (await linked.mdxHandle.queryPermission({ mode: 'read' })) === 'granted';
+    if (!allowed) throw new Error('Chrome needs folder permission again. Use Reconnect.');
+    const file = await linked.mdxHandle.getFile();
+    status(`Rebuilding lightweight map for ${source.fileName}…`);
+    setMdictIndexBusy(true);
+    const index = await buildLightMdictIndex(file, (progress) => {
+      const percentage = Number.isFinite(progress?.fraction) ? ` ${Math.round(progress.fraction * 100)}%` : '';
+      status(`${source.fileName}: ${progress?.message || 'Rebuilding…'}${percentage}`);
+    });
+    index.fileSize = file.size;
+    index.lastModified = file.lastModified;
+    linked.index = index;
+    linked.cssMode = source.cssMode;
+    await DictFloatMdictDB.putLinkedSource(linked);
+    source.recordCount = index.entryCount;
+    source.header = index.header;
+    source.lookup = index.lookup;
+    source.fileSize = file.size;
+    source.lastModified = file.lastModified;
+    source.status = 'ready';
+    await saveMdictSources();
+    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_CLEAR_CACHE', sourceId: source.id });
+    renderMdictSources();
+    renderSourceOrder();
+    status(`Rebuilt “${source.name}” without copying its definitions.`);
+  } catch (error) {
+    status(`Rebuild failed: ${error.message || error}`, true);
+  } finally {
+    setMdictIndexBusy(false);
+  }
+}
+
+async function toggleMdictStyle(source) {
+  source.cssMode = source.cssMode === 'compact' ? 'safe-original' : 'compact';
+  try {
+    const linked = await DictFloatMdictDB.getLinkedSource(source.id);
+    if (linked) { linked.cssMode = source.cssMode; await DictFloatMdictDB.putLinkedSource(linked); }
+    await saveMdictSources();
+    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_CLEAR_CACHE', sourceId: source.id });
+    renderMdictSources();
+    status(`${source.name}: ${source.cssMode === 'compact' ? 'compact style' : 'safe original CSS'} enabled.`);
+  } catch (error) {
+    status(`Style update failed: ${error.message || error}`, true);
+  }
+}
+
 async function removeMdictSource(source) {
   if (!confirm(`Remove “${source.name}” and its local MDX text index? Your original files on disk are not changed.`)) return;
   try {
-    if (globalThis.DictFloatMdictDB) await DictFloatMdictDB.removePack(source.id);
+    if (globalThis.DictFloatMdictDB) await DictFloatMdictDB.deleteLinkedSource(source.id);
+    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_CLEAR_CACHE', sourceId: source.id });
     mdictSources = mdictSources.filter((item) => item.id !== source.id);
     sourceOrder = normalizeSourceOrder(sourceOrder);
     await saveMdictSources();
@@ -373,6 +572,7 @@ function basename(filename) {
 function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function normalizeMdictSource(source) {
+  const status = source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'reconnect';
   return {
     id: String(source.id || crypto.randomUUID()),
     name: String(source.name || basename(source.fileName) || 'Untitled MDX dictionary'),
@@ -380,6 +580,8 @@ function normalizeMdictSource(source) {
     fileName: String(source.fileName || ''),
     fileSize: Number(source.fileSize || 0),
     lastModified: Number(source.lastModified || 0),
+    directoryPath: String(source.directoryPath || ''),
+    linkedFolderName: String(source.linkedFolderName || ''),
     addedAt: Number(source.addedAt || Date.now()),
     header: {
       title: String(source.header?.title || ''),
@@ -395,11 +597,14 @@ function normalizeMdictSource(source) {
       stripKey: source.lookup?.stripKey !== false
     },
     mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles.map((item) => ({ name: String(item.name || ''), size: Number(item.size || 0), lastModified: Number(item.lastModified || 0) })) : [],
+    cssFiles: Array.isArray(source.cssFiles) ? source.cssFiles.map((item) => ({ name: String(item.name || ''), size: Number(item.size || 0), lastModified: Number(item.lastModified || 0) })) : [],
     recordCount: Number(source.recordCount || 0),
     parser: String(source.parser || ''),
-    status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'header-ready'
+    cssMode: source.cssMode === 'compact' ? 'compact' : 'safe-original',
+    status
   };
 }
+
 
 function exportJson() {
   download('dictfloat-glossaries.json', JSON.stringify({

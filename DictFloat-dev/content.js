@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.7';
+  const RUNTIME_VERSION = '0.3.8';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -733,22 +733,28 @@
     if (!state.query.trim() || !lookup || lookup.query !== state.query.trim()) return false;
     if (lookup.status === 'done' && !lookup.data) return false;
     const data = lookup.data || {};
-    const primaryDefinition = data.definitions?.[0]?.definition || '';
     const section = createSourceSection({
       key: source.key,
       term: data.term || state.query,
-      detail: extractMdictPhonetic(primaryDefinition),
+      detail: data.phonetic || '',
       badge: source.name,
       tone: 'mdx'
     });
     if (lookup.status === 'loading') {
-      section.body.append(el('div', 'dictfloat-online-status', 'Searching local MDX…'));
+      section.body.append(el('div', 'dictfloat-online-status', 'Searching linked MDX…'));
     } else if (lookup.status === 'error') {
       const status = el('div', 'dictfloat-online-status', 'MDX lookup is unavailable.');
       status.title = lookup.error || '';
       section.body.append(status);
     } else if (lookup.status === 'done' && data.definitions?.length) {
+      const scopeId = `dictfloat-mdx-${String(source.id).replace(/[^a-z0-9_-]/gi, '')}`;
       const definition = el('div', 'dictfloat-mdx-html');
+      definition.id = scopeId;
+      if (data.stylesheet && source.cssMode !== 'compact') {
+        const style = document.createElement('style');
+        style.textContent = scopeMdictCss(data.stylesheet, `#${scopeId}`);
+        section.node.append(style);
+      }
       data.definitions.slice(0, 4).forEach((item, index) => {
         if (index > 0) definition.append(el('div', 'dictfloat-mdx-duplicate-term', item.term || data.term));
         definition.append(safeMdictHtml(item.definition));
@@ -776,7 +782,11 @@
 
   function safeMdictHtml(raw) {
     const output = document.createElement('div');
-    const doc = new DOMParser().parseFromString(String(raw || ''), 'text/html');
+    let source = String(raw || '');
+    // Some dictionaries encode line-based text rather than semantic HTML.
+    // Preserve those line breaks before DOMParser would collapse them.
+    if (!/<(?:br|p|div|li|table|tr|ol|ul|h[1-6])\b/i.test(source)) source = source.replace(/\r?\n/g, '<br>');
+    const doc = new DOMParser().parseFromString(source, 'text/html');
     doc.querySelectorAll('script,style,link,iframe,frame,object,embed,form,input,button,video,audio,source,img,svg,canvas').forEach((node) => node.remove());
     doc.querySelectorAll('*').forEach((node) => {
       [...node.attributes].forEach((attr) => {
@@ -792,10 +802,36 @@
     return output;
   }
 
-  function extractMdictPhonetic(raw) {
-    const text = String(raw || '').replace(/<[^>]+>/g, ' ');
-    const match = text.match(/(?:\[[^\]\n]{2,36}\]|\/[^/\n]{2,36}\/)/);
-    return match ? match[0].trim() : '';
+  function scopeMdictCss(raw, scope) {
+    // CSS is never executed; this conservative transformer keeps ordinary
+    // typography/class rules but removes external imports, URLs, fonts and
+    // layout escape hatches. Every selector is rooted at this result only.
+    let css = String(raw || '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/@(?:import|charset|namespace)\s+[^;]+;/gi, '')
+      .replace(/@font-face\s*\{[\s\S]*?\}/gi, '')
+      .replace(/@(?:media|supports|keyframes)[^{]*\{[\s\S]*?\}\s*\}/gi, '')
+      .replace(/url\s*\([^)]*\)/gi, 'none');
+    const rules = [];
+    for (const part of css.split('}')) {
+      const brace = part.indexOf('{');
+      if (brace < 0) continue;
+      const selectorText = part.slice(0, brace).trim();
+      if (!selectorText || selectorText.startsWith('@')) continue;
+      let declarations = part.slice(brace + 1)
+        .replace(/(?:^|;)\s*(?:position\s*:\s*(?:fixed|sticky)|z-index\s*:[^;]*|behavior\s*:[^;]*|filter\s*:[^;]*|animation[^;]*|transition[^;]*)/gi, ';');
+      if (!declarations.trim()) continue;
+      const selectors = selectorText.split(',').map((selector) => {
+        let normalized = selector.trim();
+        if (!normalized) return '';
+        normalized = normalized.replace(/\b(?:html|body)\b/gi, scope);
+        if (normalized === '*') return `${scope} *`;
+        if (normalized.startsWith(scope)) return normalized;
+        return `${scope} ${normalized}`;
+      }).filter(Boolean);
+      if (selectors.length) rules.push(`${selectors.join(',')} {${declarations}}`);
+    }
+    return rules.join('\n');
   }
 
   function mdictToDraft(data, sourceName) {
@@ -1061,7 +1097,8 @@
     if (query) void addHistoryQuery(query);
     render();
     if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query);
-    state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready' && query).forEach((source) => void lookupMdict(source, query));
+    const mdxSources = state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready' && query);
+    if (mdxSources.length) void lookupMdictInOrder(mdxSources, query);
     if (state.settings.onlineLookup && query) void lookupOnline(query);
     focusSearch(true);
   }
@@ -1077,6 +1114,16 @@
       state.wudao = { query, status: 'error', data: null, error: String(error?.message || error) };
     }
     renderContentOnly();
+  }
+
+  async function lookupMdictInOrder(sources, query) {
+    // The first dictionary in Lookup order gets the disk/CPU budget first.
+    // Later dictionaries continue in the background so the primary result is
+    // responsive even when several large MDX files are connected.
+    for (const source of sources) {
+      if (state.query !== query || state.destroyed) return;
+      await lookupMdict(source, query);
+    }
   }
 
   async function lookupMdict(source, query) {
@@ -1213,16 +1260,18 @@
       id: String(source.id || crypto.randomUUID()),
       name: String(source.name || source.fileName || 'Untitled MDX dictionary'),
       enabled: source.enabled !== false,
-      status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'header-ready',
+      status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'reconnect',
       parser: String(source.parser || ''),
       fileName: String(source.fileName || ''),
       fileSize: Number(source.fileSize || 0),
       recordCount: Number(source.recordCount || 0),
+      cssMode: source.cssMode === 'compact' ? 'compact' : 'safe-original',
       lookup: {
         caseSensitive: source.lookup?.caseSensitive === true,
         stripKey: source.lookup?.stripKey !== false
       },
-      mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles : []
+      mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles : [],
+      cssFiles: Array.isArray(source.cssFiles) ? source.cssFiles : []
     })) : [];
   }
 

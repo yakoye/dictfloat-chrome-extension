@@ -572,3 +572,37 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-mdx-html h1, .dark .dictfloat-mdx-html h2, .dark .dictfloat-mdx-html h3, .dark .dictfloat-mdx-html h4 { color:#d9e3f2; }
 .dark .dictfloat-mdx-html td, .dark .dictfloat-mdx-html th, .dark .dictfloat-mdx-duplicate-term { border-color:#2a374b; }
 .dark .dictfloat-mdx-duplicate-term { color:#aebbd0; }
+
+/* Linked MDX text: one continuous reading flow, separated only by the source
+   divider above. No nested card/border is added around a dictionary entry. */
+.dictfloat-source-section.mdx .dictfloat-source-body { padding-top: 1px; }
+.dictfloat-mdx-html {
+  margin: 0;
+  padding: 1px 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.56;
+  overflow-wrap: anywhere;
+}
+.dictfloat-mdx-html > * { max-width: 100%; }
+.dictfloat-mdx-html br { display: block; content: ''; margin: 2px 0; }
+.dictfloat-mdx-html .dictfloat-mdx-duplicate-term { margin: 8px 0 4px; color:#708198; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-html .dictfloat-mdx-duplicate-term { color:#aab8cb; }
+/* Common fallbacks before/without a dictionary-specific CSS file. */
+.dictfloat-mdx-html .entry,
+.dictfloat-mdx-html .sense,
+.dictfloat-mdx-html .def,
+.dictfloat-mdx-html .definition,
+.dictfloat-mdx-html .example,
+.dictfloat-mdx-html .examples { display:block; margin:3px 0; }
+.dictfloat-mdx-html .pos,
+.dictfloat-mdx-html .part,
+.dictfloat-mdx-html .gram { color:#6f8199; font-style:italic; }
+.dark .dictfloat-mdx-html .pos,
+.dark .dictfloat-mdx-html .part,
+.dark .dictfloat-mdx-html .gram { color:#a9bad0; }
+.dictfloat-mdx-duplicate-term { margin:8px 0 4px; color:#708198; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-duplicate-term { color:#aab8cb; }

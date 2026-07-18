@@ -1,18 +1,16 @@
 /*
- * DictFloat MDX text parser
+ * DictFloat lightweight linked-MDX reader.
  *
- * Supports locally imported MDict v1/v2 MDX files using no compression or
- * zlib/deflate blocks. Key-info encryption (Encrypted=2) is handled with
- * RIPEMD-128 as used by MDict. LZO-compressed dictionaries are detected and
- * reported clearly instead of pretending the import succeeded.
- *
- * The RIPEMD-128 helper below is adapted from the MIT-licensed mdict-js
- * implementation by Feng Dihai. See THIRD_PARTY_NOTICES.md.
+ * The import stage reads only the MDX header, Key Block Info, and Record Block
+ * Info. It intentionally does NOT expand all definitions or copy an MDX/MDD
+ * into IndexedDB. Lookups read one Key Block plus the needed Record Block(s)
+ * directly from the linked user file and cache only a few recent blocks.
  */
 (() => {
   'use strict';
 
   const STRIP_KEY_RE = /[()., '/\\@_-]/g;
+  const sourceCaches = new Map();
 
   function toNumber(bytes, offset, width) {
     let value = 0;
@@ -23,11 +21,14 @@
     return value;
   }
 
-  function u16(bytes, offset) { return (bytes[offset] << 8) | bytes[offset + 1]; }
-
   function readSlice(bytes, offset, length) {
     if (offset < 0 || length < 0 || offset + length > bytes.length) throw new Error('The MDX file is truncated or has an invalid block size.');
     return bytes.subarray(offset, offset + length);
+  }
+
+  async function readRange(file, offset, length) {
+    if (!file || offset < 0 || length < 0 || offset + length > file.size) throw new Error('The linked MDX file changed or is truncated. Reconnect the dictionary folder.');
+    return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
   }
 
   function parseXmlAttributes(text) {
@@ -51,11 +52,13 @@
 
   function decoderFor(encoding) {
     const raw = String(encoding || '').trim().toLowerCase();
-    if (raw === 'utf-16' || raw === 'utf16' || raw === 'utf-16le') return { decoder: new TextDecoder('utf-16le'), utf16: true };
-    if (raw === 'gbk' || raw === 'gb2312' || raw === 'gb18030') return { decoder: new TextDecoder('gb18030'), utf16: false };
-    if (raw === 'big5') return { decoder: new TextDecoder('big5'), utf16: false };
-    return { decoder: new TextDecoder('utf-8'), utf16: false };
+    if (raw === 'utf-16' || raw === 'utf16' || raw === 'utf-16le') return { encoding: 'utf-16le', utf16: true };
+    if (raw === 'gbk' || raw === 'gb2312' || raw === 'gb18030') return { encoding: 'gb18030', utf16: false };
+    if (raw === 'big5') return { encoding: 'big5', utf16: false };
+    return { encoding: 'utf-8', utf16: false };
   }
+
+  function makeDecoder(index) { return new TextDecoder(index.encoding || 'utf-8'); }
 
   async function inflateDeflate(bytes) {
     if (!('DecompressionStream' in globalThis)) throw new Error('This Chrome build does not provide DecompressionStream for MDX zlib blocks.');
@@ -75,21 +78,24 @@
     let output;
     if (code === '00000000') output = payload;
     else if (code === '02000000') output = await inflateDeflate(payload);
-    else if (code === '01000000') throw new Error('This MDX uses LZO compression. DictFloat v0.3.7 supports uncompressed and zlib MDX blocks; LZO support is not included yet.');
+    else if (code === '01000000') throw new Error('This MDX uses LZO compression. DictFloat currently supports uncompressed and zlib MDX blocks.');
     else throw new Error(`Unsupported MDX compression marker ${code}.`);
-    if (expectedSize && output.length !== expectedSize) {
-      // Some files report a slightly different size; retain a hard bound only
-      // for clearly corrupt output.
-      if (Math.abs(output.length - expectedSize) > 16) throw new Error('The MDX block decompressed to an unexpected size.');
-    }
+    if (expectedSize && Math.abs(output.length - expectedSize) > 16) throw new Error('The MDX block decompressed to an unexpected size.');
     return output;
   }
 
-  function parseHeader(bytes) {
-    if (bytes.length < 12) throw new Error('The MDX file is too small.');
-    const headerLength = toNumber(bytes, 0, 4);
-    if (!headerLength || headerLength > 1024 * 1024 || headerLength + 8 > bytes.length) throw new Error('Unable to read the MDict header.');
-    const headerBytes = readSlice(bytes, 4, headerLength);
+  function normalize(value, lookup = {}) {
+    let text = String(value || '').trim();
+    if (lookup.stripKey !== false) text = text.replace(STRIP_KEY_RE, '');
+    if (lookup.caseSensitive !== true) text = text.toLowerCase();
+    return text.replace(/\s+/g, ' ');
+  }
+
+  async function parseHeaderFromFile(file) {
+    const lengthBytes = await readRange(file, 0, 4);
+    const headerLength = toNumber(lengthBytes, 0, 4);
+    if (!headerLength || headerLength > 1024 * 1024 || headerLength + 8 > file.size) throw new Error('Unable to read the MDict header.');
+    const headerBytes = await readRange(file, 4, headerLength);
     const alternatingNulls = headerBytes.length > 3 && headerBytes[1] === 0 && headerBytes[3] === 0;
     const text = (alternatingNulls ? new TextDecoder('utf-16le') : new TextDecoder('utf-8')).decode(headerBytes)
       .replace(/^\uFEFF/, '').replace(/\0/g, '').trim();
@@ -100,16 +106,15 @@
     const encryptionText = String(attributes.Encrypted || '0').trim();
     let encrypted = 0;
     if (encryptionText && encryptionText !== 'No') encrypted = encryptionText === 'Yes' ? 1 : Number.parseInt(encryptionText, 10) || 0;
-    const { decoder, utf16 } = decoderFor(attributes.Encoding || 'UTF-8');
+    const decoderInfo = decoderFor(attributes.Encoding || 'UTF-8');
     return {
-      headerLength,
       nextOffset: 4 + headerLength + 4,
       attributes,
       version,
       encrypted,
       numberWidth: version >= 2 ? 8 : 4,
-      decoder,
-      utf16,
+      encoding: decoderInfo.encoding,
+      utf16: decoderInfo.utf16,
       lookup: {
         caseSensitive: String(attributes.KeyCaseSensitive || 'No').toLowerCase() === 'yes',
         stripKey: String(attributes.StripKey || 'Yes').toLowerCase() !== 'no'
@@ -117,191 +122,314 @@
     };
   }
 
-  async function parseMdx(file, options = {}) {
-    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
-    if (!file || !/\.mdx$/i.test(file.name || '')) throw new Error('Choose a .mdx file.');
-    if (file.size > 750 * 1024 * 1024) throw new Error('This MDX is larger than 750 MB. Text-mode indexing is intentionally limited to avoid exhausting Chrome memory.');
-    progress({ stage: 'read', message: `Reading ${file.name}…` });
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const meta = parseHeader(bytes);
-    const { version, numberWidth: width, decoder, utf16, encrypted } = meta;
-    if (encrypted & 1) throw new Error('This MDX encrypts record blocks and needs a registration key; DictFloat cannot import it without that key.');
+  function publicHeader(meta) {
+    const a = meta.attributes;
+    return {
+      title: a.Title || a.title || '',
+      description: a.Description || a.description || '',
+      engineVersion: String(a.GeneratedByEngineVersion || a.EngineVersion || meta.version),
+      encoding: String(a.Encoding || 'UTF-8'),
+      encrypted: String(a.Encrypted || '0'),
+      keyCaseSensitive: String(a.KeyCaseSensitive || ''),
+      stripKey: String(a.StripKey || '')
+    };
+  }
 
-    progress({ stage: 'key-header', message: 'Reading MDX key header…' });
+  function throwIfCancelled(signal) {
+    if (signal?.aborted) throw new DOMException('Indexing cancelled.', 'AbortError');
+  }
+
+  async function buildLightIndex(file, options = {}) {
+    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+    const signal = options.signal;
+    if (!file || !/\.mdx$/i.test(file.name || '')) throw new Error('Choose a .mdx file.');
+    throwIfCancelled(signal);
+    progress({ stage: 'header', fraction: 0.03, message: 'Reading dictionary header…' });
+    const meta = await parseHeaderFromFile(file);
+    if (meta.encrypted & 1) throw new Error('This MDX encrypts record blocks and needs a registration key; DictFloat cannot read it without that key.');
+
+    throwIfCancelled(signal);
+    progress({ stage: 'key-header', fraction: 0.10, message: 'Reading key block map…' });
     let offset = meta.nextOffset;
-    const keyHeaderLength = version >= 2 ? 40 : 16;
-    const keyHeader = readSlice(bytes, offset, keyHeaderLength);
-    offset += keyHeaderLength + (version >= 2 ? 4 : 0);
+    const width = meta.numberWidth;
+    const keyHeaderLength = meta.version >= 2 ? 40 : 16;
+    const keyHeader = await readRange(file, offset, keyHeaderLength);
+    offset += keyHeaderLength + (meta.version >= 2 ? 4 : 0);
     let p = 0;
     const keyBlocksNum = toNumber(keyHeader, p, width); p += width;
     const entriesNum = toNumber(keyHeader, p, width); p += width;
     let keyBlockInfoDecompSize = 0;
-    if (version >= 2) { keyBlockInfoDecompSize = toNumber(keyHeader, p, width); p += width; }
+    if (meta.version >= 2) { keyBlockInfoDecompSize = toNumber(keyHeader, p, width); p += width; }
     const keyBlockInfoCompSize = toNumber(keyHeader, p, width); p += width;
     const keyBlocksTotalSize = toNumber(keyHeader, p, width);
+    if (!keyBlocksNum || !entriesNum) throw new Error('This MDX contains no usable dictionary entries.');
 
-    progress({ stage: 'key-info', message: 'Decoding MDX key index…' });
-    const keyInfoCompressed = readSlice(bytes, offset, keyBlockInfoCompSize);
+    const keyInfoCompressed = await readRange(file, offset, keyBlockInfoCompSize);
     offset += keyBlockInfoCompSize;
     let keyInfo = keyInfoCompressed;
-    if (version >= 2) {
+    if (meta.version >= 2) {
       if (compressionCode(keyInfoCompressed) !== '02000000') throw new Error('The MDX key index is not a supported zlib block.');
-      const encryptedInfo = encrypted === 2;
-      const toInflate = encryptedInfo ? mdxDecrypt(keyInfoCompressed) : keyInfoCompressed;
-      keyInfo = await inflateDeflate(toInflate.subarray(8));
+      const decrypted = meta.encrypted === 2 ? mdxDecrypt(keyInfoCompressed) : keyInfoCompressed;
+      keyInfo = await inflateDeflate(decrypted.subarray(8));
       if (keyBlockInfoDecompSize && Math.abs(keyInfo.length - keyBlockInfoDecompSize) > 16) throw new Error('The MDX key index could not be decoded correctly.');
     }
 
-    const keyInfos = [];
+    throwIfCancelled(signal);
+    progress({ stage: 'key-info', fraction: 0.42, message: 'Building lightweight key map…' });
+    const decoder = makeDecoder(meta);
+    const keyBlocks = [];
     let infoPos = 0;
     let keyCompAcc = 0;
     let keyDecompAcc = 0;
     let entryAcc = 0;
-    const termLengthWidth = version >= 2 ? 2 : 1;
-    const terminatorBytes = version >= 2 ? 1 : 0;
+    const termLengthWidth = meta.version >= 2 ? 2 : 1;
+    const terminatorBytes = meta.version >= 2 ? 1 : 0;
     for (let blockIndex = 0; blockIndex < keyBlocksNum; blockIndex += 1) {
+      throwIfCancelled(signal);
       const count = toNumber(keyInfo, infoPos, width); infoPos += width;
       const firstLen = toNumber(keyInfo, infoPos, termLengthWidth); infoPos += termLengthWidth;
-      const firstBytesLength = (firstLen + terminatorBytes) * (utf16 ? 2 : 1);
-      const firstKey = decoder.decode(readSlice(keyInfo, infoPos, Math.max(0, firstBytesLength - (utf16 ? 2 : 1)))).trim();
+      const firstBytesLength = (firstLen + terminatorBytes) * (meta.utf16 ? 2 : 1);
+      const firstKey = decoder.decode(readSlice(keyInfo, infoPos, Math.max(0, firstBytesLength - (meta.utf16 ? 2 : 1)))).trim();
       infoPos += firstBytesLength;
       const lastLen = toNumber(keyInfo, infoPos, termLengthWidth); infoPos += termLengthWidth;
-      const lastBytesLength = (lastLen + terminatorBytes) * (utf16 ? 2 : 1);
-      const lastKey = decoder.decode(readSlice(keyInfo, infoPos, Math.max(0, lastBytesLength - (utf16 ? 2 : 1)))).trim();
+      const lastBytesLength = (lastLen + terminatorBytes) * (meta.utf16 ? 2 : 1);
+      const lastKey = decoder.decode(readSlice(keyInfo, infoPos, Math.max(0, lastBytesLength - (meta.utf16 ? 2 : 1)))).trim();
       infoPos += lastBytesLength;
       const compSize = toNumber(keyInfo, infoPos, width); infoPos += width;
       const decompSize = toNumber(keyInfo, infoPos, width); infoPos += width;
-      keyInfos.push({ count, firstKey, lastKey, compSize, decompSize, compAcc: keyCompAcc, decompAcc: keyDecompAcc, entryAcc });
+      keyBlocks.push({
+        count, firstKey, lastKey,
+        firstNorm: normalize(firstKey, meta.lookup), lastNorm: normalize(lastKey, meta.lookup),
+        compSize, decompSize, compAcc: keyCompAcc, decompAcc: keyDecompAcc, entryAcc
+      });
       keyCompAcc += compSize;
       keyDecompAcc += decompSize;
       entryAcc += count;
     }
-    if (entryAcc !== entriesNum) throw new Error('The MDX key index entry count is inconsistent.');
-    if (keyCompAcc !== keyBlocksTotalSize) throw new Error('The MDX key index size is inconsistent.');
-
+    if (entryAcc !== entriesNum || keyCompAcc !== keyBlocksTotalSize) throw new Error('The MDX key map is inconsistent.');
     const keyBlockStart = offset;
     offset += keyBlocksTotalSize;
-    const keys = [];
-    for (let blockIndex = 0; blockIndex < keyInfos.length; blockIndex += 1) {
-      if (blockIndex % 8 === 0) progress({ stage: 'keys', message: `Indexing words… ${Math.round((blockIndex / Math.max(1, keyInfos.length)) * 100)}%` });
-      const info = keyInfos[blockIndex];
-      const block = readSlice(bytes, keyBlockStart + info.compAcc, info.compSize);
-      const decoded = await decodeBlock(block, info.decompSize, false);
-      let pos = 0;
-      let count = 0;
-      const zeroWidth = utf16 ? 2 : 1;
-      while (pos < decoded.length) {
-        const recordStart = toNumber(decoded, pos, width);
-        pos += width;
-        const textStart = pos;
-        while (pos < decoded.length) {
-          if ((!utf16 && decoded[pos] === 0) || (utf16 && decoded[pos] === 0 && decoded[pos + 1] === 0)) break;
-          pos += zeroWidth;
-        }
-        if (pos >= decoded.length) throw new Error('An MDX key block ended before a key terminator.');
-        const term = decoder.decode(decoded.subarray(textStart, pos)).trim();
-        pos += zeroWidth;
-        if (term) keys.push({ term, recordStart });
-        count += 1;
-      }
-      if (count !== info.count) throw new Error('An MDX key block has an unexpected entry count.');
-    }
-    if (keys.length !== entriesNum) throw new Error('The MDX key list is incomplete.');
 
-    progress({ stage: 'record-header', message: 'Reading MDX definitions…' });
-    const recordHeaderLength = version >= 2 ? 32 : 16;
-    const recordHeader = readSlice(bytes, offset, recordHeaderLength);
+    throwIfCancelled(signal);
+    progress({ stage: 'record-info', fraction: 0.72, message: 'Reading definition block map…' });
+    const recordHeaderLength = meta.version >= 2 ? 32 : 16;
+    const recordHeader = await readRange(file, offset, recordHeaderLength);
     offset += recordHeaderLength;
     p = 0;
     const recordBlocksNum = toNumber(recordHeader, p, width); p += width;
     const recordEntriesNum = toNumber(recordHeader, p, width); p += width;
     const recordInfoSize = toNumber(recordHeader, p, width); p += width;
     const recordBlocksTotalSize = toNumber(recordHeader, p, width);
-    if (recordEntriesNum !== entriesNum) throw new Error('The MDX record entry count is inconsistent.');
-    const recordInfo = readSlice(bytes, offset, recordInfoSize);
+    if (recordEntriesNum !== entriesNum) throw new Error('The MDX record count does not match its key count.');
+    const recordInfo = await readRange(file, offset, recordInfoSize);
     offset += recordInfoSize;
     const recordBlockStart = offset;
-    const recordInfos = [];
+    const recordBlocks = [];
     let recordCompAcc = 0;
     let recordDecompAcc = 0;
     p = 0;
     for (let index = 0; index < recordBlocksNum; index += 1) {
       const compSize = toNumber(recordInfo, p, width); p += width;
       const decompSize = toNumber(recordInfo, p, width); p += width;
-      recordInfos.push({ compSize, decompSize, compAcc: recordCompAcc, decompAcc: recordDecompAcc });
+      recordBlocks.push({ compSize, decompSize, compAcc: recordCompAcc, decompAcc: recordDecompAcc });
       recordCompAcc += compSize;
       recordDecompAcc += decompSize;
     }
-    if (recordCompAcc !== recordBlocksTotalSize) throw new Error('The MDX record block size is inconsistent.');
-
-    // Definitions may cross record-block boundaries. Keep only the current
-    // definition open while walking the blocks, then finalize it when the
-    // next key begins. This avoids truncating long Oxford / Longman entries
-    // while also avoiding one enormous decompressed record buffer.
-    const entries = [];
-    let keyIndex = 0;
-    let active = null;
-    const joinBytes = (parts) => {
-      const total = parts.reduce((sum, part) => sum + part.length, 0);
-      const output = new Uint8Array(total);
-      let at = 0;
-      parts.forEach((part) => { output.set(part, at); at += part.length; });
-      return output;
-    };
-    const finishActive = () => {
-      if (!active) return;
-      const definition = decoder.decode(joinBytes(active.parts)).replace(/\0+$/g, '').trim();
-      entries.push({ term: active.term, definition });
-      active = null;
-    };
-
-    for (let blockIndex = 0; blockIndex < recordInfos.length; blockIndex += 1) {
-      progress({ stage: 'records', message: `Indexing definitions… ${Math.round((blockIndex / Math.max(1, recordInfos.length)) * 100)}%` });
-      const info = recordInfos[blockIndex];
-      const block = readSlice(bytes, recordBlockStart + info.compAcc, info.compSize);
-      const decoded = await decodeBlock(block, info.decompSize, false);
-      const blockStart = info.decompAcc;
-      const blockEnd = blockStart + decoded.length;
-      let localCursor = 0;
-
-      // A valid key list is monotonic. Skip only impossible duplicate offsets
-      // left behind by malformed source data rather than silently creating a
-      // second panel or a blank definition.
-      while (keyIndex < keys.length && keys[keyIndex].recordStart < blockStart) {
-        if (!active) throw new Error('The MDX record offsets are out of order.');
-        keyIndex += 1;
-      }
-
-      while (keyIndex < keys.length && keys[keyIndex].recordStart < blockEnd) {
-        const next = keys[keyIndex];
-        const nextLocal = Math.max(0, next.recordStart - blockStart);
-        if (active) {
-          active.parts.push(decoded.subarray(localCursor, nextLocal));
-          finishActive();
-        }
-        active = { term: next.term, parts: [] };
-        localCursor = nextLocal;
-        keyIndex += 1;
-      }
-
-      if (active) active.parts.push(decoded.subarray(localCursor));
-    }
-    finishActive();
-    if (entries.length !== entriesNum) throw new Error(`The MDX record index is incomplete (${entries.length}/${entriesNum} entries).`);
-    progress({ stage: 'done', message: `Indexed ${entries.length.toLocaleString()} entries.` });
+    if (recordCompAcc !== recordBlocksTotalSize) throw new Error('The MDX record map is inconsistent.');
+    progress({ stage: 'done', fraction: 1, message: `Ready · ${entriesNum.toLocaleString()} headwords · no definitions copied.` });
     return {
-      header: {
-        title: meta.attributes.Title || meta.attributes.title || '',
-        description: meta.attributes.Description || meta.attributes.description || '',
-        engineVersion: String(meta.attributes.GeneratedByEngineVersion || meta.attributes.EngineVersion || version),
-        encoding: String(meta.attributes.Encoding || 'UTF-8'),
-        encrypted: String(meta.attributes.Encrypted || '0'),
-        keyCaseSensitive: String(meta.attributes.KeyCaseSensitive || ''),
-        stripKey: String(meta.attributes.StripKey || '')
-      },
+      format: 'dictfloat-linked-mdx-v1',
+      header: publicHeader(meta),
       lookup: meta.lookup,
-      entries
+      encoding: meta.encoding,
+      utf16: meta.utf16,
+      version: meta.version,
+      numberWidth: width,
+      keyBlockStart,
+      recordBlockStart,
+      recordDataSize: recordDecompAcc,
+      entryCount: entriesNum,
+      keyBlocks,
+      recordBlocks
     };
+  }
+
+  function sourceCache(sourceId) {
+    const id = String(sourceId || 'unknown');
+    if (!sourceCaches.has(id)) sourceCaches.set(id, { keyBlocks: new Map(), recordBlocks: new Map(), css: null });
+    return sourceCaches.get(id);
+  }
+
+  function lruGet(map, key) {
+    if (!map.has(key)) return null;
+    const value = map.get(key);
+    map.delete(key); map.set(key, value);
+    return value;
+  }
+
+  function lruSet(map, key, value, max) {
+    map.set(key, value);
+    while (map.size > max) map.delete(map.keys().next().value);
+    return value;
+  }
+
+  function findKeyBlock(index, normalized) {
+    const blocks = index.keyBlocks || [];
+    let low = 0; let high = blocks.length - 1; let answer = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (String(blocks[middle].lastNorm || '') >= normalized) { answer = middle; high = middle - 1; }
+      else low = middle + 1;
+    }
+    return answer;
+  }
+
+  async function decodeKeyBlock(file, sourceId, index, blockIndex) {
+    const cache = sourceCache(sourceId);
+    const cached = lruGet(cache.keyBlocks, blockIndex);
+    if (cached) return cached;
+    const info = index.keyBlocks[blockIndex];
+    if (!info) return [];
+    const block = await readRange(file, index.keyBlockStart + info.compAcc, info.compSize);
+    const decoded = await decodeBlock(block, info.decompSize, false);
+    const width = index.numberWidth;
+    const decoder = makeDecoder(index);
+    const zeroWidth = index.utf16 ? 2 : 1;
+    const entries = [];
+    let pos = 0;
+    while (pos < decoded.length) {
+      if (pos + width > decoded.length) throw new Error('A Key Block ended before a record offset.');
+      const recordStart = toNumber(decoded, pos, width); pos += width;
+      const textStart = pos;
+      if (index.utf16) {
+        while (pos + 1 < decoded.length && !(decoded[pos] === 0 && decoded[pos + 1] === 0)) pos += 2;
+      } else {
+        while (pos < decoded.length && decoded[pos] !== 0) pos += 1;
+      }
+      if (pos >= decoded.length || (index.utf16 && pos + 1 >= decoded.length)) throw new Error('A Key Block ended before a key terminator.');
+      const term = decoder.decode(decoded.subarray(textStart, pos)).trim();
+      pos += zeroWidth;
+      if (term) entries.push({ term, norm: normalize(term, index.lookup), recordStart });
+    }
+    return lruSet(cache.keyBlocks, blockIndex, entries, 10);
+  }
+
+  function findRecordBlock(index, offset) {
+    const blocks = index.recordBlocks || [];
+    let low = 0; let high = blocks.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const block = blocks[middle];
+      if (offset < block.decompAcc) high = middle - 1;
+      else if (offset >= block.decompAcc + block.decompSize) low = middle + 1;
+      else return middle;
+    }
+    return -1;
+  }
+
+  async function decodeRecordBlock(file, sourceId, index, blockIndex) {
+    const cache = sourceCache(sourceId);
+    const cached = lruGet(cache.recordBlocks, blockIndex);
+    if (cached) return cached;
+    const info = index.recordBlocks[blockIndex];
+    if (!info) throw new Error('The MDX record map is incomplete.');
+    const block = await readRange(file, index.recordBlockStart + info.compAcc, info.compSize);
+    const decoded = await decodeBlock(block, info.decompSize, false);
+    return lruSet(cache.recordBlocks, blockIndex, decoded, 5);
+  }
+
+  function concatBytes(parts) {
+    const total = parts.reduce((sum, value) => sum + value.length, 0);
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const part of parts) { out.set(part, at); at += part.length; }
+    return out;
+  }
+
+  async function readDefinitionRange(file, sourceId, index, start, end) {
+    if (end < start || start < 0 || end > index.recordDataSize) throw new Error('The MDX definition range is invalid.');
+    const first = findRecordBlock(index, start);
+    const last = findRecordBlock(index, Math.max(start, end - 1));
+    if (first < 0 || last < 0) throw new Error('The MDX record block for this word could not be found.');
+    const parts = [];
+    for (let blockIndex = first; blockIndex <= last; blockIndex += 1) {
+      const info = index.recordBlocks[blockIndex];
+      const decoded = await decodeRecordBlock(file, sourceId, index, blockIndex);
+      const localStart = Math.max(0, start - info.decompAcc);
+      const localEnd = Math.min(decoded.length, end - info.decompAcc);
+      if (localEnd > localStart) parts.push(decoded.subarray(localStart, localEnd));
+    }
+    return makeDecoder(index).decode(concatBytes(parts)).replace(/\0+$/g, '').trim();
+  }
+
+  function phoneticFromDefinition(definition) {
+    const plain = String(definition || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+    const slash = plain.match(/\/[\w\sˈˌəɜɪʊɔɑæʌθðŋʃʒː.\-]+\//u);
+    if (slash) return slash[0];
+    const bracket = plain.match(/\[[^\]\n]{1,60}\]/);
+    return bracket ? bracket[0] : '';
+  }
+
+  async function readSafeStylesheet(sourceRecord) {
+    const cache = sourceCache(sourceRecord.id);
+    if (cache.css !== null) return cache.css;
+    const handles = Array.isArray(sourceRecord.cssHandles) ? sourceRecord.cssHandles : [];
+    const pieces = [];
+    for (const item of handles.slice(0, 4)) {
+      try {
+        const allowed = !item.handle?.queryPermission || (await item.handle.queryPermission({ mode: 'read' })) === 'granted';
+        if (!allowed) continue;
+        const file = await item.handle.getFile();
+        if (file.size > 512 * 1024) continue;
+        pieces.push(await file.text());
+      } catch (_) { /* a missing optional CSS file should not block text lookup */ }
+    }
+    cache.css = pieces.join('\n');
+    return cache.css;
+  }
+
+  async function lookupLinkedSource(sourceRecord, rawQuery) {
+    const query = String(rawQuery || '').trim();
+    if (!query) return null;
+    if (!sourceRecord?.mdxHandle || !sourceRecord?.index) throw new Error('Dictionary metadata is missing. Reconnect the dictionary folder.');
+    const granted = !sourceRecord.mdxHandle.queryPermission || (await sourceRecord.mdxHandle.queryPermission({ mode: 'read' })) === 'granted';
+    if (!granted) throw new Error('Folder permission is not available. Open Settings and reconnect this dictionary folder.');
+    const file = await sourceRecord.mdxHandle.getFile();
+    const index = sourceRecord.index;
+    if (Number(index.fileSize || 0) && Math.abs(Number(index.fileSize) - file.size) > 0) throw new Error('The linked MDX file changed. Rebuild its lightweight index.');
+    const normalized = normalize(query, index.lookup || {});
+    const candidate = findKeyBlock(index, normalized);
+    if (candidate < 0) return null;
+    let found = null;
+    let foundBlock = -1;
+    let foundAt = -1;
+    for (const blockIndex of [candidate, candidate - 1, candidate + 1].filter((value, indexValue, all) => value >= 0 && value < index.keyBlocks.length && all.indexOf(value) === indexValue)) {
+      const keys = await decodeKeyBlock(file, sourceRecord.id, index, blockIndex);
+      const itemIndex = keys.findIndex((item) => item.norm === normalized);
+      if (itemIndex >= 0) { found = keys[itemIndex]; foundBlock = blockIndex; foundAt = itemIndex; break; }
+    }
+    if (!found) return null;
+    let next = null;
+    const same = await decodeKeyBlock(file, sourceRecord.id, index, foundBlock);
+    if (foundAt + 1 < same.length) next = same[foundAt + 1];
+    else if (foundBlock + 1 < index.keyBlocks.length) {
+      const following = await decodeKeyBlock(file, sourceRecord.id, index, foundBlock + 1);
+      next = following[0] || null;
+    }
+    const end = next ? next.recordStart : index.recordDataSize;
+    const definition = await readDefinitionRange(file, sourceRecord.id, index, found.recordStart, end);
+    return {
+      term: found.term || query,
+      phonetic: phoneticFromDefinition(definition),
+      definitions: [{ term: found.term || query, definition }],
+      sourceId: sourceRecord.id,
+      stylesheet: sourceRecord.cssMode === 'safe-original' ? await readSafeStylesheet(sourceRecord) : ''
+    };
+  }
+
+  function clearCache(sourceId) {
+    if (sourceId) sourceCaches.delete(String(sourceId));
+    else sourceCaches.clear();
   }
 
   // --- RIPEMD-128 / MDict key-info decryption (MIT-derived helper) ---
@@ -410,5 +538,7 @@
     return out;
   }
 
-  globalThis.DictFloatMdictCore = { parseMdx };
+
+
+  globalThis.DictFloatMdictCore = { buildLightIndex, lookupLinkedSource, clearCache, normalize };
 })();
