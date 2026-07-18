@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.13'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.14'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -824,9 +824,38 @@
       state.selectedId = null;
     }
 
-    if (!state.query.trim()) return;
+    if (!state.query.trim()) {
+      fillDailyLine(box);
+      return;
+    }
 
     appendOrderedLookupSections(box);
+  }
+
+  const DAILY_LINES = [
+    ['Let one clear thought be enough for this moment.', '此刻，只要有一个清晰的念头就够了。'],
+    ['The smallest light still changes the shape of the dark.', '再微小的光，也会改变黑暗的形状。'],
+    ['Slow is not stopped; it is a different way of moving forward.', '慢不是停下，而是另一种向前。'],
+    ['Leave a little room in the day for a thought to arrive.', '给一天留一点空处，让一个念头抵达。'],
+    ['What you tend quietly will grow in its own season.', '你安静照料的事物，会在自己的季节里生长。'],
+    ['A good question can be the beginning of a long answer.', '一个好问题，常是一段长答案的开始。'],
+    ['The next step becomes visible after the first calm breath.', '先平静地呼吸一次，下一步才会显现。'],
+    ['Keep the mind open, and the road keeps unfolding.', '心保持打开，路便会继续展开。'],
+    ['Precision begins with noticing what is already here.', '精确，始于看见眼前已经存在的事物。'],
+    ['A quiet page can hold a very large future.', '安静的一页，也能容纳很大的未来。'],
+    ['Build slowly enough to understand what you are building.', '造得慢一点，才更懂自己正在造什么。'],
+    ['The day does not need to be perfect to be meaningful.', '一天不必完美，依然可以有意义。'],
+    ['Small proof is often stronger than a loud promise.', '微小的证据，常比响亮的承诺更有力量。'],
+    ['Read carefully; the world often hides in one word.', '认真阅读，世界常藏在一个词里。']
+  ];
+
+  function fillDailyLine(box) {
+    const dayNumber = Math.floor(Date.now() / 86400000);
+    const [english, chinese] = DAILY_LINES[dayNumber % DAILY_LINES.length];
+    const card = el('section', 'dictfloat-daily-line');
+    card.append(el('div', 'dictfloat-daily-en', english));
+    card.append(el('div', 'dictfloat-daily-zh', chinese));
+    box.append(card);
   }
 
   function appendOrderedLookupSections(box) {

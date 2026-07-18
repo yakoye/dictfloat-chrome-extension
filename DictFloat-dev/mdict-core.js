@@ -402,6 +402,92 @@
     return cache.css;
   }
 
+  function redirectTargetFromDefinition(definition) {
+    // MDict redirect entries are stored as a tiny value such as
+    // "@@@LINK=homogeneous". They are not a user-facing definition.
+    const plain = decodeEntities(String(definition || ''))
+      .replace(/\uFEFF|\0/g, '')
+      .replace(/<br\s*\/?\s*>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    const match = plain.match(/^@{1,4}LINK\s*=\s*([^\r\n]+?)\s*$/i);
+    return match ? String(match[1] || '').trim() : '';
+  }
+
+  async function matchingKeysForNormalized(file, sourceId, index, normalized) {
+    const candidate = findKeyBlock(index, normalized);
+    if (candidate < 0) return [];
+    const compatibleBlocks = [];
+    for (let blockIndex = 0; blockIndex < index.keyBlocks.length; blockIndex += 1) {
+      const block = index.keyBlocks[blockIndex];
+      if (String(block.firstNorm || '') <= normalized && String(block.lastNorm || '') >= normalized) compatibleBlocks.push(blockIndex);
+    }
+    if (!compatibleBlocks.length) compatibleBlocks.push(candidate);
+
+    const matches = [];
+    for (const blockIndex of compatibleBlocks) {
+      const keys = await decodeKeyBlock(file, sourceId, index, blockIndex);
+      keys.forEach((item, itemIndex) => {
+        if (item.norm === normalized) matches.push({ ...item, blockIndex, itemIndex });
+      });
+    }
+    return matches;
+  }
+
+  function rankKeyForQuery(item, rawQuery) {
+    const exactRaw = normalizedRawKey(rawQuery);
+    const raw = normalizedRawKey(item.term);
+    if (raw === exactRaw) return 0;
+    if (raw.replace(/[._-]+$/g, '') === exactRaw) return 1;
+    if (raw.replace(/^[._-]+/g, '') === exactRaw) return 2;
+    return 10 + Math.abs(raw.length - exactRaw.length);
+  }
+
+  function rankedUniqueMatches(matches, rawQuery, limit = 4) {
+    if (!matches.length) return [];
+    const bestRank = Math.min(...matches.map((item) => rankKeyForQuery(item, rawQuery)));
+    return matches
+      .filter((item) => rankKeyForQuery(item, rawQuery) === bestRank)
+      .sort((left, right) => left.recordStart - right.recordStart)
+      .filter((item, position, all) => position === 0 || item.recordStart !== all[position - 1].recordStart)
+      .slice(0, limit);
+  }
+
+  async function definitionForMatch(file, sourceId, index, found) {
+    const next = await nextKeyAfter(file, sourceId, index, found.blockIndex, found.itemIndex);
+    const end = next ? next.recordStart : index.recordDataSize;
+    return readDefinitionRange(file, sourceId, index, found.recordStart, end);
+  }
+
+  async function resolveRedirectDefinition(file, sourceId, index, found, definition, visited = new Set(), depth = 0) {
+    const target = redirectTargetFromDefinition(definition);
+    if (!target) return definition;
+    if (depth >= 3) return `Linked entry: ${target}`;
+
+    const visitKey = `${found.recordStart}|${normalizedRawKey(target)}`;
+    if (visited.has(visitKey)) return `Linked entry: ${target}`;
+    const nextVisited = new Set(visited);
+    nextVisited.add(visitKey);
+
+    const normalizedTarget = normalize(target, index.lookup || {});
+    const candidates = rankedUniqueMatches(
+      await matchingKeysForNormalized(file, sourceId, index, normalizedTarget),
+      target,
+      12
+    );
+    if (!candidates.length) return `Linked entry: ${target}`;
+
+    // Prefer another record for the same headword. Dictionaries often keep a
+    // redirect and the actual entry under the identical raw spelling.
+    const ordered = [...candidates.filter((item) => item.recordStart !== found.recordStart), ...candidates.filter((item) => item.recordStart === found.recordStart)];
+    for (const candidate of ordered) {
+      const candidateDefinition = await definitionForMatch(file, sourceId, index, candidate);
+      const resolved = await resolveRedirectDefinition(file, sourceId, index, candidate, candidateDefinition, nextVisited, depth + 1);
+      if (resolved && !/^Linked entry:/i.test(resolved)) return resolved;
+    }
+    return `Linked entry: ${target}`;
+  }
+
   async function lookupLinkedSource(sourceRecord, rawQuery) {
     const query = String(rawQuery || '').trim();
     if (!query) return null;
@@ -412,50 +498,16 @@
     const index = sourceRecord.index;
     if (Number(index.fileSize || 0) && Math.abs(Number(index.fileSize) - file.size) > 0) throw new Error('The linked MDX file changed. Rebuild its lightweight index.');
     const normalized = normalize(query, index.lookup || {});
-    const candidate = findKeyBlock(index, normalized);
-    if (candidate < 0) return null;
-
-    // MDX StripKey dictionaries frequently contain several keys with the same
-    // normalized form, e.g. “physical” and “physical-”. The old reader used
-    // the first normalized match and could therefore show a different entry
-    // from the exact word the user typed. Inspect only metadata-compatible
-    // blocks, then rank raw keys so an exact headword always wins.
-    const compatibleBlocks = [];
-    for (let blockIndex = 0; blockIndex < index.keyBlocks.length; blockIndex += 1) {
-      const block = index.keyBlocks[blockIndex];
-      if (String(block.firstNorm || '') <= normalized && String(block.lastNorm || '') >= normalized) compatibleBlocks.push(blockIndex);
-    }
-    if (!compatibleBlocks.length) compatibleBlocks.push(candidate);
-
-    const matches = [];
-    for (const blockIndex of compatibleBlocks) {
-      const keys = await decodeKeyBlock(file, sourceRecord.id, index, blockIndex);
-      keys.forEach((item, itemIndex) => {
-        if (item.norm === normalized) matches.push({ ...item, blockIndex, itemIndex });
-      });
-    }
-    if (!matches.length) return null;
-
-    const exactRaw = normalizedRawKey(query);
-    const rank = (item) => {
-      const raw = normalizedRawKey(item.term);
-      if (raw === exactRaw) return 0;
-      if (raw.replace(/[._-]+$/g, '') === exactRaw) return 1;
-      if (raw.replace(/^[._-]+/g, '') === exactRaw) return 2;
-      return 10 + Math.abs(raw.length - exactRaw.length);
-    };
-    const bestRank = Math.min(...matches.map(rank));
-    const selected = matches
-      .filter((item) => rank(item) === bestRank)
-      .sort((left, right) => left.recordStart - right.recordStart)
-      .filter((item, position, all) => position === 0 || item.recordStart !== all[position - 1].recordStart)
-      .slice(0, 4);
+    const selected = rankedUniqueMatches(
+      await matchingKeysForNormalized(file, sourceRecord.id, index, normalized),
+      query
+    );
+    if (!selected.length) return null;
 
     const definitions = [];
     for (const found of selected) {
-      const next = await nextKeyAfter(file, sourceRecord.id, index, found.blockIndex, found.itemIndex);
-      const end = next ? next.recordStart : index.recordDataSize;
-      const definition = await readDefinitionRange(file, sourceRecord.id, index, found.recordStart, end);
+      const rawDefinition = await definitionForMatch(file, sourceRecord.id, index, found);
+      const definition = await resolveRedirectDefinition(file, sourceRecord.id, index, found, rawDefinition);
       definitions.push({ term: found.term || query, definition });
     }
     const firstDefinition = definitions[0]?.definition || '';

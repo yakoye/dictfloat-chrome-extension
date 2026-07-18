@@ -235,7 +235,18 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-cn { margin-top:7px; color:var(--df-accent-strong); font-size:12px; font-weight:650; word-break:break-word; }
 .dark .dictfloat-cn { color:color-mix(in srgb, var(--df-accent) 58%, white); }
 .dictfloat-definition { margin-top:10px; color:inherit; font-size:12px; line-height:1.58; white-space:pre-wrap; word-break:break-word; }
-.dictfloat-tags,
+.dictfloat-tags {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:3px;
+  margin-top:10px;
+  padding-bottom:1px;
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scrollbar-width:none;
+}
+.dictfloat-tags::-webkit-scrollbar { display:none; }
 .dictfloat-related { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
 .dictfloat-tag,
 .dictfloat-related button {
@@ -250,6 +261,13 @@ button { -webkit-appearance: none; appearance: none; }
   color:#718096;
   font-size:10px;
   line-height:1.3;
+}
+.dictfloat-tags .dictfloat-tag {
+  flex:0 0 auto;
+  min-height:18px;
+  padding:1px 5px;
+  font-size:9px;
+  white-space:nowrap;
 }
 .dictfloat-related button { cursor:pointer; }
 .dictfloat-related button:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
@@ -303,6 +321,30 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-online-status { padding:7px 0; color:#8b98aa; font-size:11px; }
 
 .dictfloat-empty { padding:16px 0; color:#8b98aa; font-size:11px; text-align:center; }
+
+/* Quiet bilingual line shown only on the empty All view. It gives the idle
+   window a little warmth without competing with a lookup result. */
+.dictfloat-daily-line {
+  display:grid;
+  align-content:center;
+  min-height:155px;
+  padding:20px 16px;
+  text-align:center;
+}
+.dictfloat-daily-en {
+  color:#52647c;
+  font-family:Georgia, "Times New Roman", "Noto Serif", serif;
+  font-size:13px;
+  line-height:1.65;
+}
+.dictfloat-daily-zh {
+  margin-top:8px;
+  color:#8a98aa;
+  font-size:11px;
+  line-height:1.65;
+}
+.dark .dictfloat-daily-en { color:#d7e2f0; }
+.dark .dictfloat-daily-zh { color:#98a9bd; }
 /* History uses the same row language as All. The compact clear action is the
    only control, so the content does not look like a row of browser-default pills. */
 .dictfloat-history-head {
