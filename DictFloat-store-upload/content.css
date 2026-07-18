@@ -1,0 +1,841 @@
+:host {
+  --df-accent:#16a34a;
+  --df-accent-strong:#15803d;
+  --df-accent-soft:#ecfdf3;
+  --df-accent-ring:rgba(22,163,74,.18);
+  all: initial;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  isolation: isolate;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  color: #253147;
+}
+:host([data-accent="rose"]) { --df-accent:#ec4899; --df-accent-strong:#db2777; --df-accent-soft:#fff0f7; --df-accent-ring:rgba(236,72,153,.14); }
+:host([data-accent="green"]) { --df-accent:#16a34a; --df-accent-strong:#15803d; --df-accent-soft:#ecfdf3; --df-accent-ring:rgba(22,163,74,.18); }
+:host([data-accent="blue"]) { --df-accent:#2563eb; --df-accent-strong:#1d4ed8; --df-accent-soft:#eff6ff; --df-accent-ring:rgba(37,99,235,.16); }
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-appearance: none; appearance: none; }
+.dictfloat-panel,
+.dictfloat-mini,
+.dictfloat-bubble { pointer-events: auto; }
+
+/* DictFloat deliberately stays in a fixed top-level host rather than the
+   browser popover layer. Manual popovers can reset coordinates to the upper
+   left and break dragging on reader-mode overlays. */
+
+.dictfloat-panel {
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  min-height: 282px;
+  max-height: min(560px, calc(100vh - 24px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid #d9e1ec;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #253147;
+  color-scheme: light;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, .20), 0 3px 10px rgba(15, 23, 42, .10);
+  line-height: 1.55;
+}
+.dictfloat-panel.dark {
+  background: #161d2b;
+  color: #e7edf7;
+  color-scheme: dark;
+  border-color: #2c3a51;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .34), 0 3px 10px rgba(0,0,0,.22);
+}
+
+.dictfloat-head {
+  height: 34px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 11px;
+  cursor: grab;
+  border-bottom: 1px solid #e8edf4;
+  user-select: none;
+  touch-action: none;
+}
+.dictfloat-dragging,
+.dictfloat-dragging .dictfloat-head { cursor: grabbing !important; }
+
+.dark .dictfloat-head { border-bottom-color: #2a364a; }
+.dictfloat-branddot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--df-accent) 46%, white), var(--df-accent));
+  box-shadow: 0 0 0 3px var(--df-accent-ring);
+}
+.dictfloat-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .1px;
+}
+.dictfloat-head button,
+.dictfloat-icon-btn {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+}
+.dictfloat-head button:hover,
+.dictfloat-icon-btn:hover { background: #eef2f7; }
+.dark .dictfloat-head button:hover,
+.dark .dictfloat-icon-btn:hover { background: #27344a; }
+.dictfloat-head .dictfloat-close:hover { background:#fff1f1; color:#b42318; }
+.dark .dictfloat-head .dictfloat-close:hover { background:#3a1c20; color:#fca5a5; }
+
+.dictfloat-search-wrap { padding: 9px 10px 7px; border-bottom: 1px solid #edf1f5; }
+.dark .dictfloat-search-wrap { border-bottom-color: #283449; }
+.dictfloat-search {
+  height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid #cfd9e6;
+  border-radius: 9px;
+  background: #f8fafc;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.dictfloat-search:focus-within { border-color: var(--df-accent); box-shadow: 0 0 0 2px var(--df-accent-ring); background:#fff; }
+.dark .dictfloat-search { background: #0f172a; border-color: #33445f; }
+.dark .dictfloat-search:focus-within { border-color: var(--df-accent); box-shadow: 0 0 0 2px var(--df-accent-ring); background:#111d31; }
+.dictfloat-search-icon { color: #8391a6; font-size: 14px; line-height: 1; transform: translateY(-.5px); }
+.dictfloat-search input {
+  min-width: 0;
+  flex: 1;
+  height: 29px;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: inherit !important;
+  font-size: 12px;
+  line-height: 29px;
+}
+.dictfloat-search input::placeholder { color: #9aa6b7; opacity: 1; }
+.dark .dictfloat-search input::placeholder { color: #7f8ca1; }
+.dictfloat-search-clear {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7b8798;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 18px;
+}
+.dictfloat-search-clear:hover { background: #edf1f6; color: #344256; }
+.dark .dictfloat-search-clear { color: #9ba8bc; }
+.dark .dictfloat-search-clear:hover { background: #26344b; color:#fff; }
+
+.dictfloat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #edf1f5;
+}
+.dark .dictfloat-tabs { border-bottom-color:#283449; }
+.dictfloat-tab {
+  height: 24px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #5f6d82;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.dictfloat-tab:hover { background:#f4f6fa; color:#253147; }
+.dictfloat-tab.active { background:var(--df-accent-soft); color:var(--df-accent-strong); font-weight:700; }
+.dark .dictfloat-tab { color:#acb8c9; }
+.dark .dictfloat-tab:hover { background:#25334a; color:#fff; }
+.dark .dictfloat-tab.active { background:color-mix(in srgb, var(--df-accent) 22%, #161d2b); color:color-mix(in srgb, var(--df-accent) 50%, white); }
+
+.dictfloat-content {
+  flex: 1;
+  min-height: 155px;
+  overflow: auto;
+  padding: 10px;
+  background: inherit;
+  scrollbar-width: thin;
+}
+.dictfloat-result-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.dictfloat-result-item:hover { background:#f7f9fc; }
+.dark .dictfloat-result-item:hover { background:#202d41; }
+.dictfloat-result-topline { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.dictfloat-result-title { flex:0 0 auto; min-width:0; font-size:12px; font-weight:700; color:inherit; }
+.dictfloat-result-aliases { margin-top:2px; color:#64748b; font-size:10px; line-height:1.42; word-break:break-word; }
+.dictfloat-result-chinese { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--df-accent-strong); font-size:10px; font-weight:600; }
+.dictfloat-result-source { margin-top:3px; color:#8b98aa; font-size:10px; line-height:1.42; word-break:break-word; }
+.dark .dictfloat-result-aliases { color:#b8c5d8; }
+.dark .dictfloat-result-chinese { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dark .dictfloat-result-source { color:#92a2b8; }
+
+.dictfloat-entry-fields { display:grid; gap:4px; margin-top:8px; }
+.dictfloat-entry-aliases { color:#66778e; font-size:10px; line-height:1.45; word-break:break-word; }
+.dictfloat-entry-chinese { color:var(--df-accent-strong); font-size:11px; font-weight:650; line-height:1.45; word-break:break-word; }
+.dictfloat-entry-provenance { margin-top:11px; color:#8b98aa; font-size:10px; line-height:1.45; word-break:break-word; }
+.dark .dictfloat-entry-aliases { color:#b7c4d6; }
+.dark .dictfloat-entry-chinese { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dark .dictfloat-entry-provenance { color:#8e9db2; }
+
+.dictfloat-term-row { display:flex; align-items:center; gap:7px; min-width:0; }
+.dictfloat-term { flex:1; min-width:0; font-size: 14px; font-weight: 750; line-height:1.35; word-break:break-word; }
+.dictfloat-star { width:24px; height:24px; min-width:24px; padding:0; border:0; border-radius:7px; background:transparent; color:#9aa7b7; cursor:pointer; font-size:17px; line-height:1; }
+.dictfloat-star:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
+.dictfloat-star.on { color:var(--df-accent); }
+.dark .dictfloat-star:hover { background:color-mix(in srgb, var(--df-accent) 20%, #172338); }
+.dictfloat-subtitle { margin-top:4px; color:#7e8da3; font-size:11px; word-break:break-word; }
+.dark .dictfloat-subtitle { color:#a2b0c4; }
+.dictfloat-cn { margin-top:7px; color:var(--df-accent-strong); font-size:12px; font-weight:650; word-break:break-word; }
+.dark .dictfloat-cn { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dictfloat-definition { margin-top:10px; color:inherit; font-size:12px; line-height:1.58; white-space:pre-wrap; word-break:break-word; }
+.dictfloat-tags {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:3px;
+  margin-top:10px;
+  padding-bottom:1px;
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scrollbar-width:none;
+}
+.dictfloat-tags::-webkit-scrollbar { display:none; }
+.dictfloat-related { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+.dictfloat-tag,
+.dictfloat-related button {
+  display:inline-flex;
+  align-items:center;
+  min-height:20px;
+  margin:0;
+  padding:1px 7px;
+  border:0;
+  border-radius:999px;
+  background:#f1f5f9;
+  color:#718096;
+  font-size:10px;
+  line-height:1.3;
+}
+.dictfloat-tags .dictfloat-tag {
+  flex:0 0 auto;
+  min-height:18px;
+  padding:1px 5px;
+  font-size:9px;
+  white-space:nowrap;
+}
+.dictfloat-related button { cursor:pointer; }
+.dictfloat-related button:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
+.dark .dictfloat-tag,.dark .dictfloat-related button { background:#27354b; color:#aebbd0; }
+.dark .dictfloat-related button:hover { background:color-mix(in srgb, var(--df-accent) 20%, #172338); color:color-mix(in srgb, var(--df-accent) 56%, white); }
+.dictfloat-meta { margin-top:10px; color:#8d9aad; font-size:10px; line-height:1.45; word-break:break-word; }
+.dark .dictfloat-meta { color:#8f9db2; }
+.dictfloat-divider { height:1px; margin:12px 0 9px; background:#edf1f5; }
+.dark .dictfloat-divider { background:#2a374b; }
+
+.dictfloat-entry-actions,
+.dictfloat-inline-actions,
+.dictfloat-history-head {
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.dictfloat-entry-actions button,
+.dictfloat-inline-actions button,
+.dictfloat-history-head button {
+  min-height:25px;
+  margin:0;
+  padding:4px 8px;
+  border:1px solid #d9e2ed;
+  border-radius:7px;
+  background:#fff;
+  color:#4d5d73;
+  cursor:pointer;
+  font-size:11px;
+  line-height:1.2;
+}
+.dictfloat-entry-actions button:hover,
+.dictfloat-inline-actions button:hover,
+.dictfloat-history-head button:hover { background:#f5f7fb; border-color:#cbd6e4; color:#253147; }
+.dark .dictfloat-entry-actions button,
+.dark .dictfloat-inline-actions button,
+.dark .dictfloat-history-head button { background:#1b283c; border-color:#35465f; color:#c5d1e0; }
+.dark .dictfloat-entry-actions button:hover,
+.dark .dictfloat-inline-actions button:hover,
+.dark .dictfloat-history-head button:hover { background:#27364d; color:#fff; }
+.grow { flex:1; }
+
+.dictfloat-online-section { margin-top:11px; padding-top:10px; border-top:1px solid #edf1f5; }
+.dark .dictfloat-online-section { border-top-color:#2a374b; }
+.dictfloat-online-label { margin-bottom:6px; color:var(--df-accent-strong); font-size:10px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
+.dark .dictfloat-online-label { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dictfloat-online-definitions { margin-top:8px; display:grid; gap:6px; }
+.dictfloat-online-definition { color:inherit; font-size:12px; line-height:1.5; }
+.dictfloat-pos { display:inline-block; min-width:39px; margin-right:4px; color:#78879c; font-size:10px; font-style:italic; }
+.dark .dictfloat-pos { color:#95a4ba; }
+.dictfloat-online-status { padding:7px 0; color:#8b98aa; font-size:11px; }
+
+.dictfloat-empty { padding:16px 0; color:#8b98aa; font-size:11px; text-align:center; }
+
+/* Quiet bilingual line shown only on the empty All view. It gives the idle
+   window a little warmth without competing with a lookup result. */
+.dictfloat-daily-line {
+  display:grid;
+  align-content:center;
+  min-height:155px;
+  padding:20px 16px;
+  text-align:center;
+}
+.dictfloat-daily-en {
+  color:#52647c;
+  font-family:Georgia, "Times New Roman", "Noto Serif", serif;
+  font-size:13px;
+  line-height:1.65;
+}
+.dictfloat-daily-zh {
+  margin-top:8px;
+  color:#8a98aa;
+  font-size:11px;
+  line-height:1.65;
+}
+.dark .dictfloat-daily-en { color:#d7e2f0; }
+.dark .dictfloat-daily-zh { color:#98a9bd; }
+/* History uses the same row language as All. The compact clear action is the
+   only control, so the content does not look like a row of browser-default pills. */
+.dictfloat-history-head {
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  min-height:24px;
+  margin:0 0 2px;
+  padding:0 1px;
+}
+.dictfloat-history-head button {
+  min-height:22px;
+  margin:0;
+  padding:3px 7px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:#8b98aa;
+  cursor:pointer;
+  font-size:10px;
+  line-height:1.2;
+}
+.dictfloat-history-head button:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
+.dark .dictfloat-history-head button { background:transparent; color:#94a4b9; }
+.dark .dictfloat-history-head button:hover { background:color-mix(in srgb, var(--df-accent) 20%, #172338); color:color-mix(in srgb, var(--df-accent) 56%, white); }
+.dictfloat-history-item { min-height:48px; }
+.dictfloat-history-item .dictfloat-result-title { font-weight:700; }
+.dictfloat-history-item .dictfloat-history-time { margin-top:3px; }
+
+.dictfloat-add-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.dictfloat-add-form label { min-width:0; display:flex; flex-direction:column; gap:4px; color:#64748a; font-size:10px; font-weight:650; }
+.dark .dictfloat-add-form label { color:#aebbd0; }
+.dictfloat-add-form label.full { grid-column:1 / -1; }
+.dictfloat-add-form input,
+.dictfloat-add-form select,
+.dictfloat-add-form textarea {
+  width:100%;
+  margin:0;
+  padding:6px 7px;
+  border:1px solid #d7e0eb;
+  border-radius:7px;
+  outline:0;
+  background:#fff;
+  color:#253147;
+  font-size:11px;
+  line-height:1.35;
+}
+.dictfloat-add-form textarea { min-height:72px; resize:vertical; }
+.dictfloat-form-message { grid-column:1 / -1; margin:0; color:#b42318; font-size:10px; line-height:1.4; }
+.dictfloat-form-controls { grid-column:1 / -1; display:flex; align-items:center; gap:7px; padding-top:2px; }
+.dictfloat-form-controls button { min-height:25px; margin:0; padding:4px 8px; border:1px solid #d8e1ec; border-radius:7px; background:#fff; color:#4d5d73; cursor:pointer; font-size:10px; }
+.dictfloat-form-controls button:hover { background:#f4f7fb; color:#253147; }
+.dictfloat-form-controls .dictfloat-delete-entry { color:#b42318; border-color:#f0c2bf; }
+.dictfloat-form-controls .dictfloat-delete-entry:hover { background:#fff1f1; border-color:#e5a7a0; }
+.dark .dictfloat-form-message { color:#fca5a5; }
+.dark .dictfloat-form-controls button { background:#1c293d; border-color:#35465f; color:#c5d1e0; }
+.dark .dictfloat-form-controls button:hover { background:#293850; color:#fff; }
+.dark .dictfloat-form-controls .dictfloat-delete-entry { color:#fca5a5; border-color:#754047; }
+.dark .dictfloat-form-controls .dictfloat-delete-entry:hover { background:#3a1c20; }
+.dictfloat-add-form input:focus,
+.dictfloat-add-form select:focus,
+.dictfloat-add-form textarea:focus { border-color:var(--df-accent); box-shadow:0 0 0 2px var(--df-accent-ring); }
+.dark .dictfloat-add-form input,
+.dark .dictfloat-add-form select,
+.dark .dictfloat-add-form textarea { background:#111b2b; border-color:#34455d; color:#e7edf7; }
+
+.dictfloat-footer {
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:6px 10px;
+  border-top:1px solid #edf1f5;
+  background:#fbfcfe;
+}
+.dark .dictfloat-footer { background:#151e2d; border-top-color:#2a374b; }
+.dictfloat-footer button {
+  min-height:25px;
+  margin:0;
+  padding:4px 8px;
+  border:1px solid #d8e1ec;
+  border-radius:7px;
+  background:#fff;
+  color:#5e6e84;
+  cursor:pointer;
+  font-size:10px;
+  white-space:nowrap;
+}
+.dictfloat-footer button:hover { background:#f2f5f9; color:#253147; }
+.dark .dictfloat-footer button { background:#1c293d; border-color:#35465f; color:#becadc; }
+.dark .dictfloat-footer button:hover { background:#293850; color:#fff; }
+.dictfloat-online-toggle { color:var(--df-accent-strong) !important; }
+.dark .dictfloat-online-toggle { color:color-mix(in srgb, var(--df-accent) 56%, white) !important; }
+
+.dictfloat-mini {
+  height:32px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:0 5px 0 9px;
+  border:1px solid #d9e1ec;
+  border-radius:10px;
+  background:#fff;
+  color:#253147;
+  box-shadow:0 10px 24px rgba(15,23,42,.18), 0 2px 6px rgba(15,23,42,.10);
+  pointer-events:auto;
+}
+.dictfloat-mini.dark { background:#161d2b; border-color:#2c3a51; color:#e7edf7; }
+.dictfloat-mini-name { font-size:11px; font-weight:700; letter-spacing:.1px; }
+.dictfloat-mini button {
+  width:22px;
+  height:22px;
+  min-width:22px;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  font-size:14px;
+  line-height:1;
+}
+.dictfloat-mini button:hover { background:#eef2f7; }
+.dark .dictfloat-mini button:hover { background:#27344a; }
+
+.dictfloat-bubble {
+  touch-action:none;
+  user-select:none;
+  width:22px;
+  height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:var(--df-accent);
+  color:#fff;
+  box-shadow:0 3px 10px var(--df-accent-ring), 0 0 0 2px rgba(255,255,255,.92);
+  cursor:pointer;
+  font-size:14px;
+  font-weight:800;
+  line-height:1;
+}
+.dictfloat-bubble:hover { background:var(--df-accent-strong); transform:translateY(-1px); }
+
+@media (max-width: 420px) {
+  .dictfloat-panel { max-height: calc(100vh - 12px); }
+  .dictfloat-add-form { grid-template-columns:1fr; }
+  .dictfloat-add-form label.full { grid-column:auto; }
+}
+
+/* Optional Wudao offline data pack */
+
+/* Compact dictionary-source heading used by the offline Wudao result. */
+.dictfloat-source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dictfloat-source-row .dictfloat-term {
+  flex: 1;
+  min-width: 0;
+}
+.dictfloat-source-badge {
+  flex: 0 0 auto;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--df-accent) 25%, white);
+  border-radius: 999px;
+  background: var(--df-accent-soft);
+  color: var(--df-accent-strong);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-badge {
+  border-color: color-mix(in srgb, var(--df-accent) 38%, #35465f);
+  background: color-mix(in srgb, var(--df-accent) 14%, #172338);
+  color: color-mix(in srgb, var(--df-accent) 56%, white);
+}
+
+.dictfloat-wudao-section { margin-top:11px; padding-top:10px; border-top:1px solid #edf1f5; }
+.dark .dictfloat-wudao-section { border-top-color:#2a374b; }
+.dictfloat-wudao-label { margin-bottom:6px; color:var(--df-accent-strong); font-size:10px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
+.dark .dictfloat-wudao-label { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dictfloat-wudao-definitions { margin-top:8px; display:grid; gap:5px; }
+.dictfloat-wudao-definition { color:inherit; font-size:12px; line-height:1.52; white-space:pre-wrap; }
+.dictfloat-wudao-examples { margin-top:8px; display:grid; gap:4px; color:#6d7f96; }
+.dark .dictfloat-wudao-examples { color:#aab8cb; }
+.dictfloat-wudao-example { font-size:11px; line-height:1.45; }
+.dictfloat-wudao-status { padding:7px 0; color:#8b98aa; font-size:11px; }
+
+/* Ordered and collapsible dictionary result sections. Every source shares one
+   compact header, so local glossaries, Wudao, Online, and later MDX lookups
+   remain visually consistent inside the one DictFloat panel. */
+.dictfloat-source-section {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+}
+.dictfloat-source-section + .dictfloat-source-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf1f5;
+}
+.dark .dictfloat-source-section { background:transparent; }
+.dark .dictfloat-source-section + .dictfloat-source-section { border-top-color:#2a374b; }
+.dictfloat-source-header {
+  width: 100%;
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 1px 5px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  outline: 0;
+}
+.dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
+.dictfloat-source-header:focus-visible { box-shadow:0 0 0 2px var(--df-accent-ring); border-radius:5px; }
+.dark .dictfloat-source-header { background:transparent; }
+.dark .dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
+.dictfloat-source-save {
+  /* Secondary action: literal ASCII "+" in a tiny quiet square. It is kept
+     below the dictionary-label height so it never becomes the visual focus. */
+  flex:0 0 12px;
+  width:12px;
+  height:12px;
+  min-width:12px;
+  min-height:12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin:0 4px 0 0;
+  padding:0;
+  border:1px solid #42516a;
+  border-radius:2px;
+  background:#273448;
+  color:#d2dbea;
+  cursor:pointer;
+  font-family:ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size:11px;
+  font-weight:400;
+  line-height:10px;
+  vertical-align:baseline;
+  transform:translateY(-.5px);
+  opacity:.92;
+}
+.dictfloat-source-save:hover {
+  border-color:color-mix(in srgb, var(--df-accent) 48%, #42516a);
+  background:color-mix(in srgb, var(--df-accent) 18%, #273448);
+  color:color-mix(in srgb, var(--df-accent) 72%, white);
+  opacity:1;
+}
+.dictfloat-source-save:focus-visible {
+  outline:2px solid var(--df-accent-ring);
+  outline-offset:1px;
+}
+.dark .dictfloat-source-save {
+  border-color:#42516a;
+  background:#273448;
+  color:#d2dbea;
+}
+.dark .dictfloat-source-save:hover {
+  border-color:color-mix(in srgb, var(--df-accent) 54%, #3d4a60);
+  background:color-mix(in srgb, var(--df-accent) 18%, #283548);
+  color:color-mix(in srgb, var(--df-accent) 58%, white);
+}
+.dictfloat-source-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.dictfloat-source-term {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+.dictfloat-source-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #75849a;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-detail { color:#9eacc0; }
+.dictfloat-source-header .dictfloat-source-badge {
+  flex: 0 0 auto;
+  max-width: 44%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #8896aa;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-header .dictfloat-source-badge { background:transparent; border:0; color:#aab7c9; }
+.dictfloat-source-chevron {
+  flex: 0 0 12px;
+  width: 12px;
+  color: #8997aa;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(-1px);
+}
+.dark .dictfloat-source-chevron { color:#9eacc0; }
+.dictfloat-source-body { padding: 2px 1px 5px; }
+.dictfloat-source-section.collapsed .dictfloat-source-header { border-bottom:0; }
+.dictfloat-source-section.local .dictfloat-result-item { padding: 7px 6px; }
+.dictfloat-source-section.local .dictfloat-result-item:hover { background:#f6f8fb; }
+.dark .dictfloat-source-section.local .dictfloat-result-item:hover { background:#202d41; }
+/* A single glossary hit uses the same source header as every other dictionary.
+   Its preview intentionally omits the repeated term and leaves the row calm. */
+.dictfloat-glossary-preview {
+  display:block;
+  margin:0;
+  padding:6px 5px 4px;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  outline:0;
+}
+.dictfloat-glossary-preview:hover,
+.dictfloat-glossary-preview:focus-visible { background:#f7f9fc; }
+.dictfloat-preview-chinese { color:var(--df-accent-strong); font-size:11px; font-weight:650; line-height:1.42; word-break:break-word; }
+.dictfloat-preview-alias { margin-top:2px; color:#66778e; font-size:10px; line-height:1.42; word-break:break-word; }
+.dark .dictfloat-preview-chinese { color:color-mix(in srgb, var(--df-accent) 58%, white); }
+.dark .dictfloat-preview-alias { color:#b7c4d6; }
+.dictfloat-glossary-preview-definition {
+  margin-top:6px;
+  color:inherit;
+  font-size:11px;
+  line-height:1.52;
+  word-break:break-word;
+}
+.dark .dictfloat-glossary-preview:hover,
+.dark .dictfloat-glossary-preview:focus-visible { background:#202d41; }
+
+
+/* Imported MDX text stays inside the DictFloat shadow root. Safe original CSS
+   and a small safe subset of inline typography may apply; scripts never do. */
+.dictfloat-mdx-html { color:inherit; font-size:11px; line-height:1.52; overflow-wrap:anywhere; }
+.dictfloat-mdx-html * { max-width:100%; box-sizing:border-box; }
+.dictfloat-mdx-html p, .dictfloat-mdx-html div { margin:0 0 6px; }
+.dictfloat-mdx-html p:last-child, .dictfloat-mdx-html div:last-child { margin-bottom:0; }
+.dictfloat-mdx-html h1, .dictfloat-mdx-html h2, .dictfloat-mdx-html h3, .dictfloat-mdx-html h4 { margin:7px 0 4px; color:#26344b; font-size:11px; line-height:1.35; }
+.dictfloat-mdx-html ol, .dictfloat-mdx-html ul { margin:4px 0 6px; padding-left:18px; }
+.dictfloat-mdx-html li { margin:2px 0; }
+.dictfloat-mdx-html table { width:100%; border-collapse:collapse; margin:5px 0; }
+.dictfloat-mdx-html td, .dictfloat-mdx-html th { padding:3px 4px; border-bottom:1px solid #edf1f5; text-align:left; vertical-align:top; }
+.dictfloat-mdx-html b, .dictfloat-mdx-html strong { font-weight:750; }
+.dictfloat-mdx-html a { color:inherit; text-decoration:none; }
+.dictfloat-mdx-duplicate-term { margin:8px 0 4px; padding-top:7px; border-top:1px solid #edf1f5; color:#5e6e85; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-html h1, .dark .dictfloat-mdx-html h2, .dark .dictfloat-mdx-html h3, .dark .dictfloat-mdx-html h4 { color:#d9e3f2; }
+.dark .dictfloat-mdx-html td, .dark .dictfloat-mdx-html th, .dark .dictfloat-mdx-duplicate-term { border-color:#2a374b; }
+.dark .dictfloat-mdx-duplicate-term { color:#aebbd0; }
+
+/* Linked MDX text: one continuous reading flow, separated only by the source
+   divider above. No nested card/border is added around a dictionary entry. */
+.dictfloat-source-section.mdx .dictfloat-source-body { padding-top: 1px; }
+.dictfloat-mdx-html {
+  margin: 0;
+  padding: 1px 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.56;
+  overflow-wrap: anywhere;
+}
+.dictfloat-mdx-html > * { max-width: 100%; }
+.dictfloat-mdx-html br { display: block; content: ''; margin: 2px 0; }
+.dictfloat-mdx-html .dictfloat-mdx-duplicate-term { margin: 8px 0 4px; color:#708198; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-html .dictfloat-mdx-duplicate-term { color:#aab8cb; }
+/* Common fallbacks before/without a dictionary-specific CSS file. */
+.dictfloat-mdx-html .entry,
+.dictfloat-mdx-html .sense,
+.dictfloat-mdx-html .def,
+.dictfloat-mdx-html .definition,
+.dictfloat-mdx-html .example,
+.dictfloat-mdx-html .examples { display:block; margin:3px 0; }
+.dictfloat-mdx-html .pos,
+.dictfloat-mdx-html .part,
+.dictfloat-mdx-html .gram { color:#6f8199; font-style:italic; }
+.dark .dictfloat-mdx-html .pos,
+.dark .dictfloat-mdx-html .part,
+.dark .dictfloat-mdx-html .gram { color:#a9bad0; }
+.dictfloat-mdx-duplicate-term { margin:8px 0 4px; color:#708198; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-duplicate-term { color:#aab8cb; }
+
+.dictfloat-mdx-error-line { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.dictfloat-mdx-error-line .dictfloat-online-status { min-width:0; }
+.dictfloat-mdx-reconnect { flex:0 0 auto; min-height:26px; padding:4px 8px; border:1px solid var(--df-border); border-radius:7px; background:var(--df-panel); color:var(--df-muted); font:inherit; font-size:11px; cursor:pointer; }
+.dictfloat-mdx-reconnect:hover { border-color:var(--df-accent); color:var(--df-accent); }
+
+
+/* Destructive actions stay in the one DictFloat window and require an explicit
+   acknowledgement. They never create a second floating panel. */
+.dictfloat-confirm-layer {
+  position:absolute;
+  inset:0;
+  z-index:20;
+  display:grid;
+  place-items:center;
+  padding:12px;
+  background:rgba(248,250,252,.74);
+  backdrop-filter:blur(2px);
+}
+.dark .dictfloat-confirm-layer { background:rgba(10,16,27,.72); }
+.dictfloat-confirm-card {
+  width:100%;
+  max-width:330px;
+  padding:13px;
+  border:1px solid #e0e7f0;
+  border-radius:10px;
+  background:#fff;
+  box-shadow:0 16px 34px rgba(15,23,42,.20);
+  color:#273449;
+  font-size:11px;
+  line-height:1.5;
+}
+.dark .dictfloat-confirm-card { border-color:#3a4b64; background:#192438; color:#e6edf8; box-shadow:0 16px 34px rgba(0,0,0,.38); }
+.dictfloat-confirm-title { display:block; margin-bottom:5px; font-size:12px; }
+.dictfloat-confirm-message { color:#5f6f84; }
+.dark .dictfloat-confirm-message { color:#b9c7da; }
+.dictfloat-confirm-details { display:grid; gap:3px; margin:9px 0 0; padding:7px 8px 7px 22px; border:1px solid #edf1f5; border-radius:7px; background:#fafbfe; color:#738197; font-size:10px; }
+.dark .dictfloat-confirm-details { border-color:#314159; background:#111b2b; color:#aab9cd; }
+.dictfloat-confirm-input { display:grid; gap:4px; margin-top:9px; color:#59697f; font-size:10px; font-weight:650; }
+.dark .dictfloat-confirm-input { color:#c6d2e4; }
+.dictfloat-confirm-input input { width:100%; height:27px; margin:0; padding:4px 6px; border:1px solid #d8e1ec; border-radius:6px; outline:0; background:#fff; color:#253147; font-size:11px; }
+.dark .dictfloat-confirm-input input { border-color:#3b4d67; background:#101a2a; color:#e6edf8; }
+.dictfloat-confirm-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:11px; }
+.dictfloat-confirm-actions button { min-height:24px; margin:0; padding:4px 8px; border:1px solid #d8e1ec; border-radius:6px; background:#fff; color:#56667d; cursor:pointer; font-size:10px; }
+.dark .dictfloat-confirm-actions button { border-color:#3b4d67; background:#1b293d; color:#cbd6e6; }
+.dictfloat-confirm-actions .dictfloat-confirm-danger { border-color:#f0c2bf; color:#b42318; }
+.dark .dictfloat-confirm-actions .dictfloat-confirm-danger { border-color:#754047; color:#fca5a5; }
+.dictfloat-confirm-actions .dictfloat-confirm-danger:disabled { cursor:not-allowed; opacity:.5; }
+.dictfloat-undo-bar { position:absolute; right:10px; bottom:44px; z-index:15; display:flex; align-items:center; gap:7px; padding:6px 8px; border:1px solid #dbe3ed; border-radius:7px; background:#fff; box-shadow:0 8px 20px rgba(15,23,42,.14); color:#59697f; font-size:10px; }
+.dark .dictfloat-undo-bar { border-color:#3b4d67; background:#1a273a; color:#c9d4e5; }
+.dictfloat-undo-bar button { min-height:22px; margin:0; padding:3px 7px; border:0; border-radius:5px; background:var(--df-accent-soft); color:var(--df-accent-strong); cursor:pointer; font-size:10px; font-weight:700; }
+.dark .dictfloat-undo-bar button { background:color-mix(in srgb, var(--df-accent) 18%, #172338); color:color-mix(in srgb, var(--df-accent) 56%, white); }
+
+/* Dark MDX readability fallback. Dictionary-specific light skins may use
+   near-black ink and white fills; in dark mode the controlled layer in
+   content.js removes those paints while these rules preserve the reading flow. */
+.dark .dictfloat-mdx-dark-readable {
+  color:#e7eef8;
+  background:transparent;
+}
+.dark .dictfloat-mdx-dark-readable :where(p,div,span,font,li,dd,dt,td,th,em,i,b,strong,a,small,sup,sub) {
+  text-shadow:none !important;
+}
+.dark .dictfloat-mdx-dark-readable :where(td,th) {
+  border-color:#34445e !important;
+}
+
+/* Quiet disclosure for remaining tags in entry detail. */
+.dictfloat-tag-more { border:0; cursor:pointer; font:inherit; }
+.dictfloat-tag-more:hover { background:var(--df-accent-soft); color:var(--df-accent-strong); }
+.dark .dictfloat-tag-more:hover { background:color-mix(in srgb, var(--df-accent) 20%, #172338); }
