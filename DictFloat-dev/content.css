@@ -191,10 +191,25 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-result-item:hover { background:#f7f9fc; }
 .dark .dictfloat-result-item:hover { background:#202d41; }
 .dictfloat-result-title { font-size: 12px; font-weight: 700; color: inherit; }
-.dictfloat-result-preview { margin-top: 2px; font-size: 12px; color:#637492; }
-.dark .dictfloat-result-preview { color:#a8b7cd; }
-.dictfloat-result-source { margin-top: 3px; font-size: 10px; color:#9aa6b7; }
-.dark .dictfloat-result-source { color:#8090a9; }
+.dictfloat-result-fact { margin-top: 3px; font-size: 10px; line-height: 1.42; color:#718096; word-break:break-word; }
+.dictfloat-result-label { color:#9aa6b7; font-weight:650; }
+.dictfloat-result-aliases { color:#64748b; }
+.dictfloat-result-preview { color:#d9619a; }
+.dictfloat-result-source { color:#8b98aa; }
+.dark .dictfloat-result-fact { color:#aebbd0; }
+.dark .dictfloat-result-label { color:#8797ad; }
+.dark .dictfloat-result-aliases { color:#b8c5d8; }
+.dark .dictfloat-result-preview { color:#f3a0c9; }
+.dark .dictfloat-result-source { color:#92a2b8; }
+
+.dictfloat-entry-fields { display:grid; gap:4px; margin-top:8px; }
+.dictfloat-entry-field { color:#66778e; font-size:10px; line-height:1.45; word-break:break-word; }
+.dictfloat-entry-label { color:#8b98aa; font-weight:700; }
+.dictfloat-entry-field.cn { color:#dc5b95; font-size:11px; font-weight:650; }
+.dictfloat-entry-field.cn .dictfloat-entry-label { color:inherit; }
+.dark .dictfloat-entry-field { color:#b7c4d6; }
+.dark .dictfloat-entry-label { color:#8e9db2; }
+.dark .dictfloat-entry-field.cn { color:#f3a0c9; }
 
 .dictfloat-term-row { display:flex; align-items:center; gap:7px; min-width:0; }
 .dictfloat-term { flex:1; min-width:0; font-size: 14px; font-weight: 750; line-height:1.35; word-break:break-word; }
@@ -297,6 +312,17 @@ button { -webkit-appearance: none; appearance: none; }
   line-height:1.35;
 }
 .dictfloat-add-form textarea { min-height:72px; resize:vertical; }
+.dictfloat-form-message { grid-column:1 / -1; margin:0; color:#c83373; font-size:10px; line-height:1.4; }
+.dictfloat-form-controls { grid-column:1 / -1; display:flex; align-items:center; gap:7px; padding-top:2px; }
+.dictfloat-form-controls button { min-height:25px; margin:0; padding:4px 8px; border:1px solid #d8e1ec; border-radius:7px; background:#fff; color:#4d5d73; cursor:pointer; font-size:10px; }
+.dictfloat-form-controls button:hover { background:#f4f7fb; color:#253147; }
+.dictfloat-form-controls .dictfloat-delete-entry { color:#c83373; border-color:#f4c4d9; }
+.dictfloat-form-controls .dictfloat-delete-entry:hover { background:#fff0f5; border-color:#eca6c8; }
+.dark .dictfloat-form-message { color:#f3a0c9; }
+.dark .dictfloat-form-controls button { background:#1c293d; border-color:#35465f; color:#c5d1e0; }
+.dark .dictfloat-form-controls button:hover { background:#293850; color:#fff; }
+.dark .dictfloat-form-controls .dictfloat-delete-entry { color:#f6a8ce; border-color:#6b3b54; }
+.dark .dictfloat-form-controls .dictfloat-delete-entry:hover { background:#3a1d2e; }
 .dictfloat-add-form input:focus,
 .dictfloat-add-form select:focus,
 .dictfloat-add-form textarea:focus { border-color:#ef83b7; box-shadow:0 0 0 2px rgba(236,72,153,.12); }

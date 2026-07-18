@@ -1,6 +1,11 @@
 (() => {
-  if (window.__DICTFLOAT_LOADED__) return;
+  const RUNTIME_VERSION = '0.3.1';
+  // A reloaded extension can leave an older injected host in the page.
+  // Keep the current page to one DictFloat host only.
+  if (window.__DICTFLOAT_LOADED__ && document.documentElement.dataset.dictfloatRuntimeVersion === RUNTIME_VERSION) return;
   window.__DICTFLOAT_LOADED__ = true;
+  document.documentElement.dataset.dictfloatRuntimeVersion = RUNTIME_VERSION;
+  document.querySelectorAll('[data-dictfloat-root="true"], #dictfloat-root').forEach((node) => node.remove());
 
   const storage = chrome.storage.local;
   const DEFAULT_SETTINGS = {
@@ -20,6 +25,7 @@
     query: '',
     view: 'lookup',
     selectedId: null,
+    editingId: null,
     settings: { ...DEFAULT_SETTINGS },
     entries: [],
     dictionaries: [],
@@ -83,11 +89,16 @@
   }
 
   async function ensureRoot(renderOnCreate = false) {
-    if (state.host?.isConnected && state.mount) return;
+    if (state.host?.isConnected && state.mount) {
+      removeForeignRoots(state.host);
+      return;
+    }
+    removeForeignRoots();
     const css = await ensureStyles();
     const host = document.createElement('div');
     host.id = 'dictfloat-root';
     host.setAttribute('data-dictfloat', 'true');
+    host.setAttribute('data-dictfloat-root', 'true');
     const mount = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = css;
@@ -96,6 +107,12 @@
     state.host = host;
     state.mount = mount;
     if (renderOnCreate) render();
+  }
+
+  function removeForeignRoots(keep = null) {
+    document.querySelectorAll('[data-dictfloat-root="true"], #dictfloat-root').forEach((node) => {
+      if (node !== keep) node.remove();
+    });
   }
 
   async function toggle() {
@@ -212,6 +229,7 @@
     input.addEventListener('input', () => {
       state.query = input.value;
       state.selectedId = null;
+      state.editingId = null;
       state.online = { query: '', status: 'idle', data: null, error: '' };
       clear.hidden = !input.value;
       renderContentOnly();
@@ -238,6 +256,7 @@
   function clearSearch() {
     state.query = '';
     state.selectedId = null;
+    state.editingId = null;
     state.online = { query: '', status: 'idle', data: null, error: '' };
     const input = state.mount?.querySelector('.dictfloat-search input');
     if (input) input.value = '';
@@ -253,6 +272,8 @@
       button.addEventListener('click', () => {
         state.view = id;
         state.selectedId = null;
+        state.editingId = null;
+        state.draftEntry = id === 'add' ? null : state.draftEntry;
         if (id !== 'add') state.draftEntry = null;
         renderContentOnly();
       });
@@ -304,6 +325,15 @@
       return;
     }
 
+    if (state.editingId) {
+      const editing = state.entries.find((item) => item.id === state.editingId);
+      if (editing) {
+        fillAddForm(box, editing);
+        return;
+      }
+      state.editingId = null;
+    }
+
     if (state.selectedId) {
       const entry = state.entries.find((item) => item.id === state.selectedId);
       if (entry) {
@@ -328,22 +358,35 @@
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.append(el('div', 'dictfloat-result-title', entry.term));
-    if (entry.chinese) item.append(el('div', 'dictfloat-result-preview', entry.chinese));
+    item.append(resultFact('Aliases', entry.aliases?.length ? entry.aliases.join(' · ') : '—', 'dictfloat-result-aliases'));
+    item.append(resultFact('Chinese', entry.chinese || '—', 'dictfloat-result-preview'));
     const dictionary = dictionaryFor(entry.dictionaryId);
-    if (dictionary) item.append(el('div', 'dictfloat-result-source', dictionary.name));
-    const openEntry = () => {
-      state.selectedId = entry.id;
-      void addHistory(entry);
-      renderContentOnly();
-    };
-    item.addEventListener('click', openEntry);
+    item.append(resultFact('Dictionary', dictionary?.name || 'Local glossary', 'dictfloat-result-source'));
+    const openItem = () => showEntry(entry);
+    item.addEventListener('click', openItem);
     item.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        openEntry();
+        openItem();
       }
     });
     return item;
+  }
+
+  function resultFact(label, value, className = '') {
+    const line = el('div', `dictfloat-result-fact ${className}`.trim());
+    line.append(el('span', 'dictfloat-result-label', `${label}:`), document.createTextNode(` ${value}`));
+    return line;
+  }
+
+  function showEntry(entry) {
+    state.view = 'lookup';
+    state.editingId = null;
+    state.selectedId = entry.id;
+    state.query = entry.term;
+    state.draftEntry = null;
+    void addHistory(entry);
+    renderContentOnly();
   }
 
   function fillEntry(box, entry) {
@@ -359,8 +402,16 @@
     });
     row.append(star);
     box.append(row);
-    if (entry.aliases?.length) box.append(el('div', 'dictfloat-subtitle', entry.aliases.join(' · ')));
-    if (entry.chinese) box.append(el('div', 'dictfloat-cn', entry.chinese));
+
+    const dictionary = dictionaryFor(entry.dictionaryId);
+    const fields = el('div', 'dictfloat-entry-fields');
+    fields.append(detailField('Aliases', entry.aliases?.length ? entry.aliases.join(' · ') : '—'));
+    fields.append(detailField('Chinese', entry.chinese || '—', 'cn'));
+    fields.append(detailField('Dictionary', dictionary?.name || 'Local glossary'));
+    if (entry.category) fields.append(detailField('Category', entry.category));
+    if (entry.source) fields.append(detailField('Source', entry.source));
+    box.append(fields);
+
     box.append(el('div', 'dictfloat-definition', entry.definition || 'No definition yet.'));
 
     if (entry.tags?.length) {
@@ -379,36 +430,40 @@
       });
       box.append(related);
     }
-
-    const dictionary = dictionaryFor(entry.dictionaryId);
-    const meta = [dictionary?.name, entry.category, entry.source].filter(Boolean).join(' · ');
-    if (meta) box.append(el('div', 'dictfloat-meta', meta));
     box.append(el('div', 'dictfloat-divider'));
 
     const actions = el('div', 'dictfloat-entry-actions');
-    const back = el('button', '', '← Results');
+    const back = el('button', '', '← Return');
     back.type = 'button';
+    back.title = 'Return to results';
     back.addEventListener('click', () => {
       state.selectedId = null;
+      state.editingId = null;
+      state.view = 'lookup';
       renderContentOnly();
     });
     const copy = el('button', '', 'Copy');
     copy.type = 'button';
     copy.addEventListener('click', () => copyText(formatCopy(entry), copy));
-    const writable = !dictionary?.builtIn;
-    const edit = el('button', '', writable ? 'Edit' : '+ Copy to mine');
+    const edit = el('button', '', 'Edit');
     edit.type = 'button';
-    edit.addEventListener('click', () => {
-      if (writable) {
-        fillEditForm(box, entry);
-      } else {
-        state.draftEntry = cloneForGlossary(entry);
-        state.view = 'add';
-        renderContentOnly();
-      }
-    });
+    edit.addEventListener('click', () => openEdit(entry));
     actions.append(back, el('span', 'grow'), copy, edit);
     box.append(actions);
+  }
+
+  function detailField(label, value, kind = '') {
+    const line = el('div', `dictfloat-entry-field ${kind}`.trim());
+    line.append(el('span', 'dictfloat-entry-label', `${label}:`), document.createTextNode(` ${value}`));
+    return line;
+  }
+
+  function openEdit(entry) {
+    state.view = 'lookup';
+    state.selectedId = null;
+    state.editingId = entry.id;
+    state.draftEntry = null;
+    renderContentOnly();
   }
 
   function appendOnlineSection(box) {
@@ -452,6 +507,7 @@
     save.type = 'button';
     save.addEventListener('click', () => {
       state.draftEntry = onlineToDraft(data);
+      state.editingId = null;
       state.view = 'add';
       renderContentOnly();
     });
@@ -495,14 +551,17 @@
       source: 'My glossary',
       dictionaryId: defaultDictionaryId
     };
-    box.append(el('div', 'dictfloat-meta', editing ? 'Edit local entry' : 'Add to a local glossary'));
+    box.append(el('div', 'dictfloat-meta', editing ? 'Edit entry' : 'Add to a local glossary'));
     const form = el('form', 'dictfloat-add-form');
+    const validation = el('div', 'dictfloat-form-message');
+    validation.hidden = true;
 
     const glossaryLabel = el('label', 'full');
     glossaryLabel.append(document.createTextNode('Glossary'));
     const glossary = document.createElement('select');
     glossary.name = 'dictionaryId';
-    writableDictionaries().forEach((dictionary) => {
+    const choices = editing ? state.dictionaries : writableDictionaries();
+    choices.forEach((dictionary) => {
       const option = document.createElement('option');
       option.value = dictionary.id;
       option.textContent = dictionary.name;
@@ -529,22 +588,41 @@
       input.name = name;
       input.placeholder = placeholder;
       input.value = Array.isArray(entry[name]) ? entry[name].join(', ') : (entry[name] || '');
+      if (name === 'term' || name === 'definition') input.required = true;
       field.append(input);
       form.append(field);
     });
+    form.append(validation);
 
-    const controls = el('div', 'dictfloat-footer');
-    controls.style.gridColumn = '1 / -1';
+    const controls = el('div', 'dictfloat-form-controls');
     const cancel = el('button', '', 'Cancel');
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
       state.draftEntry = null;
-      state.view = 'lookup';
+      state.editingId = null;
+      state.view = editing ? 'lookup' : 'lookup';
+      if (editing) state.selectedId = editing.id;
       renderContentOnly();
     });
     const save = el('button', '', editing ? 'Save changes' : 'Save entry');
     save.type = 'submit';
-    controls.append(cancel, el('span', 'grow'), save);
+    controls.append(cancel, el('span', 'grow'));
+    if (editing) {
+      const remove = el('button', 'dictfloat-delete-entry', 'Delete');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        if (!confirm(`Delete “${editing.term}”?`)) return;
+        state.entries = state.entries.filter((item) => item.id !== editing.id);
+        state.history = state.history.filter((item) => item.id !== editing.id);
+        await storage.set({ dictFloatEntries: state.entries.map(normalizeEntry), dictFloatHistory: state.history });
+        state.editingId = null;
+        state.selectedId = null;
+        state.view = 'lookup';
+        renderContentOnly();
+      });
+      controls.append(remove);
+    }
+    controls.append(save);
     form.append(controls);
 
     form.addEventListener('submit', async (event) => {
@@ -552,7 +630,11 @@
       const formData = new FormData(form);
       const term = String(formData.get('term') || '').trim();
       const definition = String(formData.get('definition') || '').trim();
-      if (!term || !definition) return;
+      if (!term || !definition) {
+        validation.textContent = 'Term and definition are required.';
+        validation.hidden = false;
+        return;
+      }
       const value = normalizeEntry({
         ...entry,
         id: entry.id || crypto.randomUUID(),
@@ -571,6 +653,7 @@
       else state.entries.unshift(value);
       await saveEntries();
       state.draftEntry = null;
+      state.editingId = null;
       state.view = 'lookup';
       state.query = term;
       state.selectedId = value.id;
@@ -580,7 +663,7 @@
   }
 
   function fillEditForm(box, entry) {
-    box.textContent = '';
+    state.editingId = entry.id;
     fillAddForm(box, entry);
   }
 
@@ -589,6 +672,7 @@
     state.query = query;
     state.view = 'lookup';
     state.selectedId = null;
+    state.editingId = null;
     state.draftEntry = null;
     state.online = { query, status: state.settings.onlineLookup && query ? 'loading' : 'idle', data: null, error: '' };
     const best = queryEntries(query)[0];

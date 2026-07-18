@@ -1,16 +1,18 @@
-# DictFloat v0.3.0
+# DictFloat v0.3.1
 
 Compact Chrome floating dictionary for local technical glossaries, selection lookup, and online fallback.
 
-## v0.3.0 highlights / 本版重点
+## v0.3.1 highlights / 本版重点
 
 - **Shadow-DOM floating window**: the panel no longer inherits button, input, dark-mode, or focus styles from GitHub, documentation sites, or other host pages.
 - **Reworked minimize**: the title-bar minus button now collapses to a compact DictFloat mini bar with a restore control, instead of a detached oversized lookup button.
 - **Related terms**: local entries can store and click through related terms such as `MPS`, `MRRS`, `RCB`, and `Completion Timeout`.
 - **History management**: the History tab now has a Clear action.
-- **Built-in glossary protection**: starter entries can be copied to your own glossary instead of being edited in place.
-- **MDX / MDD beta intake**: Settings can now select local `.mdx` and optional matching `.mdd` files, parse the MDX XML header, identify engine / encoding metadata, pair matching MDD filenames, manage source enable state, and export/import source metadata with your backup.
-- **MDX / MDD limitation in v0.3.0**: this build deliberately stops at local source registration and header validation. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources. Dictionary files themselves are not copied into Chrome storage, so multi-GB files are never silently duplicated.
+- **Reliable entry workflow**: every local entry can be opened from results or History, edited, saved, or deleted; starter entries remain local data and may be corrected directly.
+- **Single-window guard**: stale roots left by a prior extension reload are removed before DictFloat opens, so one page keeps one DictFloat window.
+- **Structured result cards**: each local result now shows Term, Aliases, Chinese, and Dictionary in a stable order.
+- **MDX / MDD beta intake**: Settings can select local `.mdx` and optional matching `.mdd` files, parse the MDX XML header, identify engine / encoding metadata, pair matching MDD filenames, manage source enable state, and export/import source metadata with your backup.
+- **MDX / MDD limitation in v0.3.1**: this build deliberately stops at local source registration and header validation. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources. Dictionary files themselves are not copied into Chrome storage, so multi-GB files are never silently duplicated.
 
 ## Existing features / 已有功能
 
