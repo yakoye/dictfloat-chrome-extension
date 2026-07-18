@@ -868,3 +868,148 @@ word ○
 
 
 
+
+---
+
+# DictFloat v0.6.5
+
+## 本次讨论定稿
+
+用户确认继续开发 v0.6.5，并补充 AI Provider 的设计原则：
+
+1. AI 提示词可以做成默认值，但必须允许用户修改。
+2. 用户修改提示词后，后续一直使用用户修改后的内容，不能被默认提示词覆盖。
+3. API URL、Model、Provider Name、Temperature、Max Text Length、Max Output Tokens 等字段都可以预先填入默认值。
+4. 所有预填内容都必须允许用户修改。
+5. AI Provider 需要支持多个，逻辑类似词典源：可以启用/禁用，可以选择使用哪一个，每个 Provider 可以有不同提示词。
+
+## v0.6.5 已实现内容
+
+### 1. Custom AI Provider 升级为 AI Providers
+
+原 v0.6.4 只支持一个 Custom AI Provider。v0.6.5 改为多个 AI Provider 列表：
+
+- 支持新增 AI Provider。
+- 支持新增 DeepSeek 预设。
+- 支持删除 Provider。
+- 支持复制 Provider。
+- 支持上移 / 下移排序。
+- 每个 Provider 都有独立 Enable 开关。
+- 结果区按普通翻译源 + AI Provider 顺序显示。
+
+### 2. 每个 AI Provider 独立配置
+
+每个 Provider 支持独立设置：
+
+- Provider name
+- Model
+- API URL / Base URL
+- API Key
+- Prompt preset
+- System Prompt
+- User Prompt Template
+- Temperature
+- Max text length
+- Max output tokens
+- Test API
+
+### 3. 默认提示词预填且可修改
+
+内置默认 Prompt Preset：
+
+- 英语全能解析 · 简洁版
+- 只翻译 · 简洁版
+- 技术英文 · PCIe/芯片版
+- 自定义
+
+默认 DeepSeek Provider 使用“英语全能解析 · 简洁版”。
+
+关键规则：
+
+- 默认提示词只作为初始化内容。
+- 用户修改后会保存到 `dictFloatSettings.aiProviders`。
+- 后续调用一直使用用户保存后的版本。
+- 只有用户主动选择 preset 或点击 Reset prompt to preset，才会重新覆盖当前 Provider 的提示词。
+
+### 4. API Key 存储调整
+
+v0.6.4：
+
+```text
+ dictFloatCustomAiSecret.apiKey
+```
+
+v0.6.5：
+
+```text
+ dictFloatAiSecrets[providerId].apiKey
+```
+
+兼容旧版本迁移：
+
+- 如果用户已有 v0.6.4 的单 Provider 配置，会迁移为 `ai_legacy_custom`。
+- 如果旧版 API Key 存在，会映射到迁移后的 Provider。
+- 新版普通备份仍不导出 API Key。
+
+### 5. 测试功能升级
+
+每个 AI Provider 卡片都有自己的 Test API。
+
+默认测试文本：
+
+```text
+You've hit your usage limit.
+```
+
+这样可以直接验证默认英语解析提示词是否按固定栏目输出。
+
+### 6. 内容脚本调用逻辑
+
+选中两个以上英文单词后，点击小圆点或按 Enter：
+
+1. 按设置调用 Chrome Built-in / Youdao / Baidu / Doubao。
+2. 再按 AI Provider 列表顺序调用所有已启用的 AI Provider。
+3. 每个 AI Provider 在结果区独立显示为一张卡片。
+4. 每张卡片支持 Copy / Retry。
+
+### 7. 版本与打包
+
+- manifest version 更新为 0.6.5。
+- 本地开发包输出为 `DictFloat-v0.6.5.zip`。
+- Chrome Web Store 上传包输出为 `DictFloat-v0.6.5-store-upload.zip`。
+- Store 上传包移除 `manifest.key`，并不包含 `next_develop_plan.md`。
+
+## v0.6.5 检查记录
+
+执行检查：
+
+```text
+node --check options.js
+node --check content.js
+node --check background.js
+python3 -m json.tool manifest.json
+```
+
+检查目标：
+
+- Options 页脚本语法正确。
+- Content script 语法正确。
+- Background service worker 语法正确。
+- manifest.json 语法正确。
+- ZIP 根目录直接包含 manifest.json。
+- Store 上传包不包含 manifest.key。
+
+## 下一版 v0.6.6 规划
+
+建议下一版继续优化 AI Provider 体验：
+
+1. AI Provider 结果并发执行：AI 源先返回先显示，网页桥接仍保持顺序，避免网页桥接互相干扰。
+2. Provider 列表支持拖拽排序，而不只是上移 / 下移。
+3. 支持导入 / 导出 AI Provider 配置，但默认继续排除 API Key。
+4. 支持每个 Provider 选择触发场景：
+   - 只处理句子 / 段落
+   - 也处理单词
+   - 仅手动 Retry 时调用
+5. 支持每个 Provider 设置输出显示高度和折叠状态。
+6. AI 结果卡片显示耗时、模型名、endpoint 简写。
+7. 增加“恢复默认提示词库”按钮，不影响用户现有 Provider，除非用户明确覆盖。

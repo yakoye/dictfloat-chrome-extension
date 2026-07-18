@@ -31,16 +31,19 @@
     'dictFloatMdictSources', 'dictFloatWudaoSource', 'dictFloatSourceOrder',
     'dictFloatHistory', 'dictFloatPanelPosition', 'dictFloatCollapsedSources'
   ];
+  const AI_PROVIDER_DEFAULT_DEEPSEEK_ID = 'ai_default_deepseek';
   const DEFAULT_CUSTOM_AI_PROVIDER = {
-    providerName: 'Custom AI',
-    apiUrl: '',
-    model: '',
-    systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
-    userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
-    temperature: 0.2,
+    providerName: 'DeepSeek 英语精析',
+    apiUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    promptPreset: 'english_parse_quick',
+    systemPrompt: '你是专业资深英语解析助手。只按固定栏目输出中文解析，禁止开场白和总结。',
+    userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}',
+    temperature: 0.1,
     maxTextLength: 6000,
-    maxOutputTokens: 4000
+    maxOutputTokens: 1800
   };
+  function defaultAiProviders() { return [{ id: AI_PROVIDER_DEFAULT_DEEPSEEK_ID, enabled: false, ...DEFAULT_CUSTOM_AI_PROVIDER }]; }
   const DEFAULT_SETTINGS = {
     selectionMode: 'bubble',
     fontSize: 12,
@@ -49,7 +52,8 @@
     onlineLookup: true,
     accent: 'green',
     translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
-    customAiProvider: { ...DEFAULT_CUSTOM_AI_PROVIDER }
+    customAiProvider: { ...DEFAULT_CUSTOM_AI_PROVIDER },
+    aiProviders: defaultAiProviders()
   };
 
   const state = {
@@ -921,18 +925,27 @@
 
   function enabledTranslationProviders() {
     const providers = normalizeTranslationProviders(state.settings.translationProviders);
-    return [
+    const webProviders = [
       providers.chrome ? 'chrome' : '',
       providers.youdao ? 'youdao' : '',
       providers.baidu ? 'baidu' : '',
-      providers.doubao ? 'doubao' : '',
-      providers.customAi ? 'customAi' : ''
+      providers.doubao ? 'doubao' : ''
     ].filter(Boolean);
+    const ai = normalizeAiProviders(state.settings.aiProviders, state.settings)
+      .filter((item) => item.enabled)
+      .map((item) => `ai:${item.id}`);
+    return [...webProviders, ...ai];
+  }
+
+  function aiProviderByRuntimeKey(key) {
+    const id = String(key || '').startsWith('ai:') ? String(key).slice(3) : '';
+    return normalizeAiProviders(state.settings.aiProviders, state.settings).find((item) => item.id === id) || null;
   }
 
   function translationProviderLabel(key) {
-    if (key === 'customAi') {
-      return String(state.settings.customAiProvider?.providerName || 'Custom AI').trim() || 'Custom AI';
+    if (String(key || '').startsWith('ai:')) {
+      const provider = aiProviderByRuntimeKey(key);
+      return String(provider?.providerName || 'Custom AI').trim() || 'Custom AI';
     }
     return ({ chrome: 'Chrome Built-in', youdao: 'Youdao Bridge', baidu: 'Baidu Bridge', doubao: 'Doubao Bridge' })[key] || key;
   }
@@ -1042,7 +1055,7 @@
       try {
         const data = provider === 'chrome'
           ? await translateWithChromeBuiltIn(text)
-          : (provider === 'customAi' ? await translateWithCustomAI(text) : await translateWithWebBridge(text, [provider]));
+          : (String(provider).startsWith('ai:') ? await translateWithCustomAI(text, String(provider).slice(3)) : await translateWithWebBridge(text, [provider]));
         if (state.query.trim() !== text) return;
         update({ status: 'done', data, error: '' });
       } catch (error) {
@@ -1065,13 +1078,14 @@
     return response.data;
   }
 
-  async function translateWithCustomAI(text) {
-    const maxTextLength = clamp(Number(state.settings.customAiProvider?.maxTextLength), 100, 30000, DEFAULT_CUSTOM_AI_PROVIDER.maxTextLength);
+  async function translateWithCustomAI(text, providerId) {
+    const provider = normalizeAiProviders(state.settings.aiProviders, state.settings).find((item) => item.id === providerId) || state.settings.customAiProvider || DEFAULT_CUSTOM_AI_PROVIDER;
+    const maxTextLength = clamp(Number(provider?.maxTextLength), 100, 30000, DEFAULT_CUSTOM_AI_PROVIDER.maxTextLength);
     if (String(text || '').length > maxTextLength) {
-      throw new Error(`Selected text is longer than Custom AI Max Text Length (${maxTextLength}).`);
+      throw new Error(`Selected text is longer than ${provider?.providerName || 'Custom AI'} Max Text Length (${maxTextLength}).`);
     }
-    const response = await safeRuntimeSend({ type: 'DICTFLOAT_CUSTOM_AI_TRANSLATE', text });
-    if (!response?.ok) throw new Error(response?.error || 'Custom AI Provider failed.');
+    const response = await safeRuntimeSend({ type: 'DICTFLOAT_CUSTOM_AI_TRANSLATE', text, providerId });
+    if (!response?.ok) throw new Error(response?.error || 'AI Provider failed.');
     return response.data;
   }
 
@@ -2666,26 +2680,47 @@ ${scope} :where(hr) { border-color:#34445e !important; }
   }
 
   function normalizeCustomAiProvider(input) {
+    return normalizeAiProvider(input || DEFAULT_CUSTOM_AI_PROVIDER, 0);
+  }
+
+  function normalizeAiProvider(input, index = 0) {
     const value = input && typeof input === 'object' ? input : {};
     return {
-      providerName: String(value.providerName || DEFAULT_CUSTOM_AI_PROVIDER.providerName).trim() || DEFAULT_CUSTOM_AI_PROVIDER.providerName,
+      id: String(value.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || `ai_${index + 1}`,
+      enabled: value.enabled === true,
+      providerName: String(value.providerName || value.name || DEFAULT_CUSTOM_AI_PROVIDER.providerName).trim() || DEFAULT_CUSTOM_AI_PROVIDER.providerName,
       apiUrl: String(value.apiUrl || '').trim(),
       model: String(value.model || '').trim(),
+      promptPreset: String(value.promptPreset || 'custom'),
       systemPrompt: String(value.systemPrompt || DEFAULT_CUSTOM_AI_PROVIDER.systemPrompt),
       userPromptTemplate: String(value.userPromptTemplate || DEFAULT_CUSTOM_AI_PROVIDER.userPromptTemplate),
       temperature: clamp(Number(value.temperature), 0, 2, DEFAULT_CUSTOM_AI_PROVIDER.temperature),
       maxTextLength: clamp(Number(value.maxTextLength), 100, 30000, DEFAULT_CUSTOM_AI_PROVIDER.maxTextLength),
-      maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, DEFAULT_CUSTOM_AI_PROVIDER.maxOutputTokens)
+      maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, DEFAULT_CUSTOM_AI_PROVIDER.maxOutputTokens),
+      order: Number.isFinite(Number(value.order)) ? Number(value.order) : index + 1
     };
+  }
+
+  function normalizeAiProviders(input, rawSettings = null) {
+    if (Array.isArray(input) && input.length) return input.map((item, index) => normalizeAiProvider(item, index));
+    const raw = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
+    if (raw.customAiProvider && typeof raw.customAiProvider === 'object') {
+      const legacy = raw.customAiProvider;
+      const configured = String(legacy.apiUrl || '').trim() || String(legacy.model || '').trim() || raw.translationProviders?.customAi === true;
+      if (configured) return [normalizeAiProvider({ id: 'ai_legacy_custom', enabled: raw.translationProviders?.customAi === true, ...legacy }, 0)];
+    }
+    return defaultAiProviders();
   }
 
   function normalizeSettings(input) {
     const raw = input && typeof input === 'object' ? input : {};
+    const aiProviders = normalizeAiProviders(raw.aiProviders, raw);
     return {
       ...DEFAULT_SETTINGS,
       ...raw,
       translationProviders: normalizeTranslationProviders(raw.translationProviders || DEFAULT_SETTINGS.translationProviders),
-      customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || DEFAULT_SETTINGS.customAiProvider)
+      customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || DEFAULT_SETTINGS.customAiProvider),
+      aiProviders
     };
   }
 

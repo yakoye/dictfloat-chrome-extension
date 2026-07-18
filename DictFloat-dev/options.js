@@ -1,16 +1,92 @@
 const $ = (id) => document.getElementById(id);
 const defaultTranslationProviders = () => ({ chrome: true, youdao: false, baidu: false, doubao: false, customAi: false });
-const defaultCustomAiProvider = () => ({
-  providerName: 'Custom AI',
-  apiUrl: '',
-  model: '',
-  systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
-  userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
-  temperature: 0.2,
-  maxTextLength: 6000,
-  maxOutputTokens: 4000
-});
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders(), customAiProvider: defaultCustomAiProvider() };
+const AI_PROVIDER_LEGACY_ID = 'ai_legacy_custom';
+const AI_PROVIDER_DEFAULT_DEEPSEEK_ID = 'ai_default_deepseek';
+const AI_PROVIDER_PRESETS = {
+  english_parse_quick: {
+    label: '英语全能解析 · 简洁版',
+    systemPrompt: `你是专业资深英语解析助手。你的任务是对用户输入的英文内容进行快速、简洁、清晰的中文解析。
+
+必须严格遵守以下规则：
+
+1. 只处理英文内容。
+2. 如果用户输入不包含英文，统一只回复：请输入英文句子，我为你进行完整解析。
+3. 自动清理 PDF、网页、文档复制造成的多余换行、断行、多余空格。
+4. 遇到英文缩写，如 You've、I'm、don't、isn't，先在【规整后原句】中还原为完整形式。
+5. 输出必须严格使用下面五个栏目，不能增加栏目，不能减少栏目。
+6. 禁止输出开场白，例如“好的”“下面是”“我将为你解析”。
+7. 禁止输出结尾总结，例如“最终输出”“总结如下”。
+8. 禁止使用“第一步、第二步、第三步”这类流程标题。
+9. 语法解析必须单独分行，明确句子类型、时态、主语、谓语、宾语、定语、状语、补语等。
+10. 每个句子成分都要附带中文直译。
+11. 生词只选择值得讲的词：高阶词、书面词、专业词、易混词、熟词僻义、固定搭配、句中有特殊含义的常用词。
+12. 普通基础词如果没有特殊用法，可以忽略。
+13. 生词格式统一为：单词 /音标/ 词性. 通用释义；本句含义；常用搭配。
+14. 输出要紧凑，不要废话，但不能漏掉核心语法和关键词义。
+
+固定输出格式如下：
+
+【规整后原句】
+...
+
+【中文句式翻译】
+...
+
+【中文意思翻译】
+...
+
+【语法结构解析】
+- 句子类型：...
+- 句子时态：...
+- 主语：...
+- 谓语：...
+- 宾语：...
+- 定语：...
+- 状语：...
+- 补语：...
+- 核心结构：...
+- 语法说明：...
+
+【生词详解】
+1. ...
+2. ...
+3. ...`,
+    userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}'
+  },
+  quick_translate: {
+    label: '只翻译 · 简洁版',
+    systemPrompt: '你是专业英语到中文翻译助手。只输出中文译文，不闲聊，不解释。译文要自然、准确、简洁。',
+    userPromptTemplate: '请把下面英文翻译成自然中文：\n\n{{text}}'
+  },
+  tech_pcie: {
+    label: '技术英文 · PCIe/芯片版',
+    systemPrompt: '你是熟悉 PCIe、芯片、固件、硬件架构的技术英语解析助手。输出中文，保留必要英文术语和缩写，解释专业词在句中的技术含义。禁止闲聊。',
+    userPromptTemplate: '请解析下面技术英文，按“中文翻译 / 结构解析 / 关键词术语”输出：\n\n{{text}}'
+  }
+};
+const DEFAULT_AI_PRESET_ID = 'english_parse_quick';
+function defaultCustomAiProvider() {
+  const preset = AI_PROVIDER_PRESETS[DEFAULT_AI_PRESET_ID];
+  return {
+    providerName: 'DeepSeek 英语精析',
+    apiUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    promptPreset: DEFAULT_AI_PRESET_ID,
+    systemPrompt: preset.systemPrompt,
+    userPromptTemplate: preset.userPromptTemplate,
+    temperature: 0.1,
+    maxTextLength: 6000,
+    maxOutputTokens: 1800
+  };
+}
+function defaultAiProviders() {
+  return [{
+    id: AI_PROVIDER_DEFAULT_DEEPSEEK_ID,
+    enabled: false,
+    ...defaultCustomAiProvider()
+  }];
+}
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders(), customAiProvider: defaultCustomAiProvider(), aiProviders: defaultAiProviders() };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -34,6 +110,8 @@ let wudaoSource = null;
 let sourceOrder = [];
 let draggedSourceKey = '';
 let recoverySnapshots = [];
+let aiProviders = [];
+let aiSecrets = {};
 
 void init();
 
@@ -49,10 +127,12 @@ async function init() {
     'dictFloatPanelPosition',
     'dictFloatCollapsedSources',
     'dictFloatCustomAiSecret',
+    'dictFloatAiSecrets',
     RECOVERY_SNAPSHOT_KEY
   ]);
   const settings = normalizeSettings(data.dictFloatSettings);
-  const customAiSecret = data.dictFloatCustomAiSecret && typeof data.dictFloatCustomAiSecret === 'object' ? data.dictFloatCustomAiSecret : {};
+  aiProviders = normalizeAiProviders(settings.aiProviders, data.dictFloatSettings);
+  aiSecrets = normalizeAiSecrets(data.dictFloatAiSecrets, data.dictFloatCustomAiSecret, aiProviders);
   applyAccent(settings.accent);
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
@@ -70,12 +150,14 @@ async function init() {
     else element.value = settings[key];
   }
   applyTranslationProviderSettings(settings.translationProviders);
-  applyCustomAiProviderSettings(settings.customAiProvider, customAiSecret);
+  renderAiProviders();
 
-  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge', 'translateCustomAiProvider'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
-  ['customAiProviderName', 'customAiApiUrl', 'customAiModel', 'customAiApiKey', 'customAiSystemPrompt', 'customAiUserPromptTemplate', 'customAiTemperature', 'customAiMaxTextLength', 'customAiMaxOutputTokens'].forEach((id) => $(id)?.addEventListener('change', saveSettings));
-  $('customAiShowKey')?.addEventListener('change', toggleCustomAiKeyVisibility);
-  $('customAiTest')?.addEventListener('click', testCustomAiProvider);
+  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  $('aiProviderList')?.addEventListener('change', handleAiProviderChange);
+  $('aiProviderList')?.addEventListener('input', handleAiProviderInput);
+  $('aiProviderList')?.addEventListener('click', handleAiProviderAction);
+  $('addAiProvider')?.addEventListener('click', async () => { aiProviders.push(createAiProviderFromTemplate('blank')); renderAiProviders(); await saveSettings(); });
+  $('addDeepSeekProvider')?.addEventListener('click', async () => { aiProviders.push(createAiProviderFromTemplate('deepseek')); renderAiProviders(); await saveSettings(); });
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('newGlossaryAction').addEventListener('click', async () => { closeAddSourceMenu(); await addDictionary(); });
   $('connectMdictFolder').addEventListener('click', async () => { closeAddSourceMenu(); await connectMdictFolder(); });
@@ -108,7 +190,9 @@ async function init() {
     dictFloatEntries: entries,
     dictFloatMdictSources: mdictSources,
     dictFloatWudaoSource: wudaoSource,
-    dictFloatSourceOrder: sourceOrder
+    dictFloatSourceOrder: sourceOrder,
+    dictFloatAiSecrets: aiSecrets,
+    dictFloatSettings: { ...settings, aiProviders }
   });
 }
 
@@ -144,51 +228,122 @@ function normalizeTranslationProviders(input) {
   };
 }
 
-function normalizeCustomAiProvider(input) {
+function normalizeAiProvider(input, index = 0) {
   const defaults = defaultCustomAiProvider();
   const value = input && typeof input === 'object' ? input : {};
+  const presetId = AI_PROVIDER_PRESETS[value.promptPreset] ? String(value.promptPreset) : 'custom';
   return {
-    providerName: String(value.providerName || defaults.providerName).trim() || defaults.providerName,
+    id: sanitizeAiProviderId(value.id) || createAiProviderId(),
+    enabled: value.enabled === true,
+    providerName: String(value.providerName || value.name || defaults.providerName).trim() || defaults.providerName,
     apiUrl: String(value.apiUrl || '').trim(),
     model: String(value.model || '').trim(),
+    promptPreset: presetId,
     systemPrompt: String(value.systemPrompt || defaults.systemPrompt),
     userPromptTemplate: String(value.userPromptTemplate || defaults.userPromptTemplate),
     temperature: clamp(Number(value.temperature), 0, 2, defaults.temperature),
     maxTextLength: clamp(Number(value.maxTextLength), 100, 30000, defaults.maxTextLength),
-    maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens)
+    maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens),
+    order: Number.isFinite(Number(value.order)) ? Number(value.order) : index + 1
   };
+}
+
+function normalizeAiProviders(input, rawSettings = null) {
+  if (Array.isArray(input) && input.length) {
+    const seen = new Set();
+    return input.map((item, index) => normalizeAiProvider(item, index)).filter((item) => {
+      if (seen.has(item.id)) item.id = createAiProviderId();
+      seen.add(item.id);
+      return true;
+    });
+  }
+  const migrated = migrateLegacyCustomAiProvider(rawSettings || input);
+  return migrated ? [migrated] : defaultAiProviders();
+}
+
+function migrateLegacyCustomAiProvider(rawSettings) {
+  const raw = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
+  const legacy = raw.customAiProvider && typeof raw.customAiProvider === 'object' ? raw.customAiProvider : null;
+  if (!legacy) return null;
+  const oldDefault = {
+    providerName: 'Custom AI', apiUrl: '', model: '',
+    systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
+    userPromptTemplate: '请解析下面英文内容：\n\n{{text}}'
+  };
+  const configured = String(legacy.apiUrl || '').trim()
+    || String(legacy.model || '').trim()
+    || String(legacy.providerName || '').trim() !== oldDefault.providerName
+    || String(legacy.systemPrompt || '') !== oldDefault.systemPrompt
+    || String(legacy.userPromptTemplate || '') !== oldDefault.userPromptTemplate
+    || raw.translationProviders?.customAi === true;
+  if (!configured) return null;
+  return normalizeAiProvider({
+    id: AI_PROVIDER_LEGACY_ID,
+    enabled: raw.translationProviders?.customAi === true,
+    providerName: legacy.providerName || 'Custom AI',
+    apiUrl: legacy.apiUrl || '',
+    model: legacy.model || '',
+    promptPreset: 'custom',
+    systemPrompt: legacy.systemPrompt || oldDefault.systemPrompt,
+    userPromptTemplate: legacy.userPromptTemplate || oldDefault.userPromptTemplate,
+    temperature: legacy.temperature,
+    maxTextLength: legacy.maxTextLength,
+    maxOutputTokens: legacy.maxOutputTokens,
+    order: 1
+  });
+}
+
+function normalizeAiSecrets(input, legacySecret = null, providers = []) {
+  const source = input && typeof input === 'object' ? input : {};
+  const result = {};
+  providers.forEach((provider) => {
+    const item = source[provider.id] && typeof source[provider.id] === 'object' ? source[provider.id] : {};
+    result[provider.id] = { apiKey: String(item.apiKey || '').trim() };
+  });
+  const legacyKey = legacySecret && typeof legacySecret === 'object' ? String(legacySecret.apiKey || '').trim() : '';
+  if (legacyKey) {
+    const legacyProvider = providers.find((item) => item.id === AI_PROVIDER_LEGACY_ID) || providers[0];
+    if (legacyProvider && !result[legacyProvider.id]?.apiKey) result[legacyProvider.id] = { apiKey: legacyKey };
+  }
+  return result;
+}
+
+function sanitizeAiProviderId(value) {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+}
+
+function createAiProviderId() {
+  try { return `ai_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`; }
+  catch (_) { return `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
+}
+
+function createAiProviderFromTemplate(kind = 'blank') {
+  const base = defaultCustomAiProvider();
+  if (kind === 'deepseek') {
+    return normalizeAiProvider({ id: createAiProviderId(), enabled: false, ...base, providerName: 'DeepSeek 英语精析', apiUrl: 'https://api.deepseek.com', model: 'deepseek-chat' });
+  }
+  if (kind === 'openai') {
+    return normalizeAiProvider({ id: createAiProviderId(), enabled: false, ...base, providerName: 'OpenAI 英语精析', apiUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' });
+  }
+  return normalizeAiProvider({ id: createAiProviderId(), enabled: false, ...base, providerName: 'Custom AI', apiUrl: '', model: '' });
 }
 
 function normalizeSettings(input) {
   const raw = input && typeof input === 'object' ? input : {};
+  const ai = normalizeAiProviders(raw.aiProviders, raw);
   return {
     ...defaults,
     ...raw,
     translationProviders: normalizeTranslationProviders(raw.translationProviders || defaults.translationProviders),
-    customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || defaults.customAiProvider)
+    customAiProvider: normalizeAiProvider(raw.customAiProvider || defaults.customAiProvider),
+    aiProviders: ai
   };
 }
 
 function applyTranslationProviderSettings(input) {
   const providers = normalizeTranslationProviders(input);
-  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao', translateCustomAiProvider: 'customAi' };
+  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao' };
   Object.entries(map).forEach(([id, key]) => { const node = $(id); if (node) node.checked = !!providers[key]; });
-}
-
-function applyCustomAiProviderSettings(input, secret = {}) {
-  const config = normalizeCustomAiProvider(input);
-  const values = {
-    customAiProviderName: config.providerName,
-    customAiApiUrl: config.apiUrl,
-    customAiModel: config.model,
-    customAiApiKey: String(secret.apiKey || ''),
-    customAiSystemPrompt: config.systemPrompt,
-    customAiUserPromptTemplate: config.userPromptTemplate,
-    customAiTemperature: config.temperature,
-    customAiMaxTextLength: config.maxTextLength,
-    customAiMaxOutputTokens: config.maxOutputTokens
-  };
-  Object.entries(values).forEach(([id, value]) => { const node = $(id); if (node) node.value = value; });
 }
 
 function readTranslationProviderSettings() {
@@ -197,46 +352,277 @@ function readTranslationProviderSettings() {
     youdao: $('translateYoudaoBridge')?.checked === true,
     baidu: $('translateBaiduBridge')?.checked === true,
     doubao: $('translateDoubaoBridge')?.checked === true,
-    customAi: $('translateCustomAiProvider')?.checked === true
+    customAi: false
   };
 }
 
-function readCustomAiProviderSettings() {
-  const defaults = defaultCustomAiProvider();
-  return normalizeCustomAiProvider({
-    providerName: $('customAiProviderName')?.value || defaults.providerName,
-    apiUrl: $('customAiApiUrl')?.value || '',
-    model: $('customAiModel')?.value || '',
-    systemPrompt: $('customAiSystemPrompt')?.value || defaults.systemPrompt,
-    userPromptTemplate: $('customAiUserPromptTemplate')?.value || defaults.userPromptTemplate,
-    temperature: Number($('customAiTemperature')?.value),
-    maxTextLength: Number($('customAiMaxTextLength')?.value),
-    maxOutputTokens: Number($('customAiMaxOutputTokens')?.value)
+function renderAiProviders() {
+  const list = $('aiProviderList');
+  if (!list) return;
+  list.textContent = '';
+  aiProviders = normalizeAiProviders(aiProviders);
+  if (!aiProviders.length) aiProviders = defaultAiProviders();
+  aiProviders.forEach((provider, index) => list.append(createAiProviderCard(provider, index)));
+  const count = $('aiProviderCount');
+  if (count) count.textContent = `${aiProviders.filter((item) => item.enabled).length}/${aiProviders.length} enabled`;
+}
+
+function createAiProviderCard(provider, index) {
+  const item = document.createElement('article');
+  item.className = 'ai-provider-item';
+  item.dataset.providerId = provider.id;
+
+  const head = document.createElement('div');
+  head.className = 'ai-provider-head';
+  const toggle = document.createElement('label');
+  toggle.className = 'ai-provider-toggle';
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = !!provider.enabled;
+  checkbox.dataset.aiField = 'enabled';
+  const titleWrap = document.createElement('span');
+  const title = document.createElement('strong');
+  title.textContent = `${index + 1}. ${provider.providerName || 'Custom AI'}`;
+  const sub = document.createElement('small');
+  sub.textContent = [provider.model || 'model not set', provider.apiUrl || 'API URL not set'].join(' · ');
+  titleWrap.append(title, sub);
+  toggle.append(checkbox, titleWrap);
+  head.append(toggle);
+
+  const controls = document.createElement('div');
+  controls.className = 'ai-provider-controls';
+  controls.append(
+    makeAiActionButton('↑', 'move-up', index === 0 ? true : false),
+    makeAiActionButton('↓', 'move-down', index === aiProviders.length - 1 ? true : false),
+    makeAiActionButton('Duplicate', 'duplicate'),
+    makeAiActionButton('Delete', 'delete', aiProviders.length <= 1),
+  );
+  head.append(controls);
+  item.append(head);
+
+  const grid = document.createElement('div');
+  grid.className = 'custom-ai-grid ai-provider-grid';
+  grid.append(
+    aiField('Provider name', 'providerName', provider.providerName, 'text', 'DeepSeek 英语精析'),
+    aiField('Model', 'model', provider.model, 'text', 'deepseek-chat / gpt-4o-mini'),
+    aiField('API URL / Base URL', 'apiUrl', provider.apiUrl, 'url', 'https://api.deepseek.com', 'custom-ai-url'),
+    aiField('API Key', 'apiKey', aiSecrets[provider.id]?.apiKey || '', 'password', 'sk-...', 'custom-ai-key')
+  );
+  item.append(grid);
+
+  const showKey = document.createElement('label');
+  showKey.className = 'toggle-row compact-toggle ai-show-key';
+  const showText = document.createElement('span');
+  showText.textContent = 'Show password';
+  const showBox = document.createElement('input');
+  showBox.type = 'checkbox';
+  showBox.dataset.aiAction = 'show-key';
+  showKey.append(showText, showBox);
+  item.append(showKey);
+
+  const nums = document.createElement('div');
+  nums.className = 'custom-ai-grid numeric-grid';
+  nums.append(
+    aiField('Temperature', 'temperature', provider.temperature, 'number', '0.1', '', { min: '0', max: '2', step: '0.1' }),
+    aiField('Max text length', 'maxTextLength', provider.maxTextLength, 'number', '6000', '', { min: '100', max: '30000', step: '100' }),
+    aiField('Max output tokens', 'maxOutputTokens', provider.maxOutputTokens, 'number', '1800', '', { min: '128', max: '16000', step: '128' })
+  );
+  item.append(nums);
+
+  const presetLabel = document.createElement('label');
+  presetLabel.className = 'field';
+  const presetSpan = document.createElement('span');
+  presetSpan.textContent = 'Prompt preset';
+  const preset = document.createElement('select');
+  preset.dataset.aiField = 'promptPreset';
+  [...Object.entries(AI_PROVIDER_PRESETS), ['custom', { label: '自定义' }]].forEach(([value, info]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = info.label;
+    option.selected = provider.promptPreset === value;
+    preset.append(option);
   });
+  presetLabel.append(presetSpan, preset);
+  item.append(presetLabel);
+
+  item.append(aiTextAreaField('System Prompt', 'systemPrompt', provider.systemPrompt, 7));
+  item.append(aiTextAreaField('User Prompt Template', 'userPromptTemplate', provider.userPromptTemplate, 4));
+
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.innerHTML = 'Use <code>{{text}}</code> where selected text should be inserted. Base URLs are automatically converted to <code>/chat/completions</code>. Modified prompts are saved and reused until you change them again.';
+  item.append(hint);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions ai-provider-actions';
+  actions.append(makeAiActionButton('Test API', 'test'), makeAiActionButton('Reset prompt to preset', 'reset-prompt'));
+  item.append(actions);
+  const result = document.createElement('pre');
+  result.className = 'custom-ai-test-result';
+  result.hidden = true;
+  result.dataset.aiTestResult = 'true';
+  item.append(result);
+  return item;
 }
 
-function toggleCustomAiKeyVisibility() {
-  const input = $('customAiApiKey');
-  if (!input) return;
-  input.type = $('customAiShowKey')?.checked ? 'text' : 'password';
+function aiField(labelText, field, value, type = 'text', placeholder = '', extraClass = '', attrs = {}) {
+  const label = document.createElement('label');
+  label.className = ['field', extraClass].filter(Boolean).join(' ');
+  const span = document.createElement('span');
+  span.textContent = labelText;
+  const input = document.createElement('input');
+  input.type = type;
+  input.value = value ?? '';
+  input.placeholder = placeholder;
+  input.dataset.aiField = field;
+  if (field === 'apiKey') input.autocomplete = 'off';
+  Object.entries(attrs).forEach(([key, val]) => input.setAttribute(key, val));
+  label.append(span, input);
+  return label;
 }
 
-async function testCustomAiProvider() {
-  const output = $('customAiTestResult');
-  if (output) { output.hidden = false; output.textContent = 'Testing Custom AI Provider…'; }
+function aiTextAreaField(labelText, field, value, rows = 4) {
+  const label = document.createElement('label');
+  label.className = 'field prompt-field';
+  const span = document.createElement('span');
+  span.textContent = labelText;
+  const textarea = document.createElement('textarea');
+  textarea.rows = rows;
+  textarea.value = value || '';
+  textarea.dataset.aiField = field;
+  label.append(span, textarea);
+  return label;
+}
+
+function makeAiActionButton(text, action, disabled = false) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = text;
+  button.dataset.aiAction = action;
+  button.disabled = disabled;
+  return button;
+}
+
+function handleAiProviderInput(event) {
+  const field = event.target?.dataset?.aiField;
+  if (field === 'systemPrompt' || field === 'userPromptTemplate') {
+    const card = event.target.closest('.ai-provider-item');
+    const select = card?.querySelector('[data-ai-field="promptPreset"]');
+    if (select) select.value = 'custom';
+  }
+}
+
+async function handleAiProviderChange(event) {
+  const field = event.target?.dataset?.aiField;
+  if (!field) return;
+  if (field === 'promptPreset' && event.target.value !== 'custom') {
+    const card = event.target.closest('.ai-provider-item');
+    applyPresetToCard(card, event.target.value);
+  }
+  collectAiProvidersFromDom();
+  await saveSettings({ quiet: true });
+  renderAiProviders();
+  status('Saved. Open windows update immediately.');
+}
+
+async function handleAiProviderAction(event) {
+  const action = event.target?.dataset?.aiAction;
+  if (!action) return;
+  const card = event.target.closest('.ai-provider-item');
+  const id = card?.dataset?.providerId;
+  if (action === 'show-key') {
+    const input = card?.querySelector('[data-ai-field="apiKey"]');
+    if (input) input.type = event.target.checked ? 'text' : 'password';
+    return;
+  }
+  collectAiProvidersFromDom();
+  const index = aiProviders.findIndex((item) => item.id === id);
+  if (action === 'move-up' && index > 0) {
+    [aiProviders[index - 1], aiProviders[index]] = [aiProviders[index], aiProviders[index - 1]];
+    renderAiProviders(); await saveSettings(); return;
+  }
+  if (action === 'move-down' && index >= 0 && index < aiProviders.length - 1) {
+    [aiProviders[index + 1], aiProviders[index]] = [aiProviders[index], aiProviders[index + 1]];
+    renderAiProviders(); await saveSettings(); return;
+  }
+  if (action === 'duplicate' && index >= 0) {
+    const copy = { ...aiProviders[index], id: createAiProviderId(), providerName: `${aiProviders[index].providerName} Copy`, enabled: false };
+    aiProviders.splice(index + 1, 0, normalizeAiProvider(copy, index + 1));
+    aiSecrets[copy.id] = { apiKey: '' };
+    renderAiProviders(); await saveSettings(); return;
+  }
+  if (action === 'delete' && index >= 0 && aiProviders.length > 1) {
+    delete aiSecrets[aiProviders[index].id];
+    aiProviders.splice(index, 1);
+    renderAiProviders(); await saveSettings(); return;
+  }
+  if (action === 'reset-prompt' && card) {
+    const preset = card.querySelector('[data-ai-field="promptPreset"]')?.value || DEFAULT_AI_PRESET_ID;
+    applyPresetToCard(card, preset === 'custom' ? DEFAULT_AI_PRESET_ID : preset);
+    collectAiProvidersFromDom();
+    await saveSettings(); renderAiProviders(); return;
+  }
+  if (action === 'test' && id) {
+    await testAiProvider(id);
+  }
+}
+
+function applyPresetToCard(card, presetId) {
+  const preset = AI_PROVIDER_PRESETS[presetId];
+  if (!card || !preset) return;
+  const system = card.querySelector('[data-ai-field="systemPrompt"]');
+  const user = card.querySelector('[data-ai-field="userPromptTemplate"]');
+  if (system) system.value = preset.systemPrompt;
+  if (user) user.value = preset.userPromptTemplate;
+}
+
+function collectAiProvidersFromDom() {
+  const rows = Array.from(document.querySelectorAll('.ai-provider-item'));
+  const providers = [];
+  const secrets = {};
+  rows.forEach((card, index) => {
+    const read = (field) => card.querySelector(`[data-ai-field="${field}"]`);
+    const id = sanitizeAiProviderId(card.dataset.providerId) || createAiProviderId();
+    providers.push(normalizeAiProvider({
+      id,
+      enabled: read('enabled')?.checked === true,
+      providerName: read('providerName')?.value,
+      apiUrl: read('apiUrl')?.value,
+      model: read('model')?.value,
+      promptPreset: read('promptPreset')?.value,
+      systemPrompt: read('systemPrompt')?.value,
+      userPromptTemplate: read('userPromptTemplate')?.value,
+      temperature: Number(read('temperature')?.value),
+      maxTextLength: Number(read('maxTextLength')?.value),
+      maxOutputTokens: Number(read('maxOutputTokens')?.value),
+      order: index + 1
+    }, index));
+    secrets[id] = { apiKey: String(read('apiKey')?.value || '').trim() };
+  });
+  aiProviders = providers.length ? providers : defaultAiProviders();
+  aiSecrets = normalizeAiSecrets(secrets, null, aiProviders);
+  return aiProviders;
+}
+
+async function testAiProvider(providerId) {
+  collectAiProvidersFromDom();
+  const card = document.querySelector(`.ai-provider-item[data-provider-id="${CSS.escape(providerId)}"]`);
+  const output = card?.querySelector('[data-ai-test-result="true"]');
+  if (output) { output.hidden = false; output.textContent = 'Testing AI Provider…'; }
   await saveSettings({ quiet: true });
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_CUSTOM_AI_TEST', text: 'DictFloat reads selected English text and returns Chinese translation or analysis.' });
-    if (!response?.ok) throw new Error(response?.error || 'Custom AI test failed.');
-    if (output) output.textContent = String(response.data?.translation || '').trim() || 'Custom AI responded successfully.';
-    status('Custom AI Provider test completed.');
+    const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_CUSTOM_AI_TEST', providerId, text: 'You\'ve hit your usage limit.' });
+    if (!response?.ok) throw new Error(response?.error || 'AI Provider test failed.');
+    if (output) output.textContent = String(response.data?.translation || '').trim() || 'AI Provider responded successfully.';
+    status('AI Provider test completed.');
   } catch (error) {
     if (output) output.textContent = `Test failed: ${String(error?.message || error)}`;
-    status('Custom AI Provider test failed.');
+    status('AI Provider test failed.');
   }
 }
 
 async function saveSettings(options = {}) {
+  collectAiProvidersFromDom();
   const settings = {
     selectionMode: $('selectionMode').value,
     fontSize: clamp(Number($('fontSize').value), 10, 15, 12),
@@ -245,13 +631,13 @@ async function saveSettings(options = {}) {
     onlineLookup: $('onlineLookup').checked,
     accent: $('accent').value,
     translationProviders: readTranslationProviderSettings(),
-    customAiProvider: readCustomAiProviderSettings(),
+    customAiProvider: aiProviders[0] ? { ...aiProviders[0] } : defaultCustomAiProvider(),
+    aiProviders,
     themeLockedByUser: true
   };
   $('fontSize').value = settings.fontSize;
   $('panelWidth').value = settings.panelWidth;
-  const secret = { apiKey: String($('customAiApiKey')?.value || '').trim() };
-  await chrome.storage.local.set({ dictFloatSettings: settings, dictFloatCustomAiSecret: secret });
+  await chrome.storage.local.set({ dictFloatSettings: settings, dictFloatAiSecrets: aiSecrets });
   applyAccent(settings.accent);
   if (!options.quiet) status('Saved. Open windows update immediately.');
 }

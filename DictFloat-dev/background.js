@@ -55,13 +55,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'DICTFLOAT_CUSTOM_AI_TRANSLATE') {
-    translateWithCustomAi(String(message.text || ''))
+    translateWithCustomAi(String(message.text || ''), String(message.providerId || ''))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
   if (message?.type === 'DICTFLOAT_CUSTOM_AI_TEST') {
-    translateWithCustomAi(String(message.text || 'DictFloat is a compact floating dictionary for reading English webpages.'))
+    translateWithCustomAi(String(message.text || 'DictFloat is a compact floating dictionary for reading English webpages.'), String(message.providerId || ''), { allowDisabled: true })
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
@@ -156,21 +156,29 @@ function defaultSettings() {
     onlineLookup: true,
     accent: 'green',
     translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
-    customAiProvider: defaultCustomAiProvider()
+    customAiProvider: defaultCustomAiProvider(),
+    aiProviders: defaultAiProviders()
   };
 }
 
 function defaultCustomAiProvider() {
   return {
-    providerName: 'Custom AI',
-    apiUrl: '',
-    model: '',
-    systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
-    userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
-    temperature: 0.2,
+    id: 'ai_default_deepseek',
+    enabled: false,
+    providerName: 'DeepSeek 英语精析',
+    apiUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    promptPreset: 'english_parse_quick',
+    systemPrompt: '你是专业资深英语解析助手。只按固定栏目输出中文解析，禁止开场白和总结。',
+    userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}',
+    temperature: 0.1,
     maxTextLength: 6000,
-    maxOutputTokens: 4000
+    maxOutputTokens: 1800
   };
+}
+
+function defaultAiProviders() {
+  return [{ ...defaultCustomAiProvider() }];
 }
 
 function defaultDictionaries() {
@@ -473,19 +481,21 @@ async function injectBridgeScript(tabId) {
 // excluded from normal backup/export lists.
 // ---------------------------------------------------------------------------
 
-async function translateWithCustomAi(rawText) {
+async function translateWithCustomAi(rawText, providerId = '', options = {}) {
   const text = String(rawText || '').trim();
   if (!text) throw new Error('No text to analyze.');
-  const data = await chrome.storage.local.get(['dictFloatSettings', 'dictFloatCustomAiSecret']);
+  const data = await chrome.storage.local.get(['dictFloatSettings', 'dictFloatAiSecrets', 'dictFloatCustomAiSecret']);
   const settings = normalizeBackgroundSettings(data.dictFloatSettings);
-  const config = settings.customAiProvider;
-  const secret = data.dictFloatCustomAiSecret && typeof data.dictFloatCustomAiSecret === 'object' ? data.dictFloatCustomAiSecret : {};
-  const apiKey = String(secret.apiKey || '').trim();
-  if (!settings.translationProviders.customAi) throw new Error('Custom AI Provider is disabled in Settings.');
-  if (!apiKey) throw new Error('Custom AI API Key is empty.');
-  if (!config.apiUrl) throw new Error('Custom AI API URL is empty.');
-  if (!config.model) throw new Error('Custom AI model is empty.');
-  if (text.length > config.maxTextLength) throw new Error(`Selected text is longer than Custom AI Max Text Length (${config.maxTextLength}).`);
+  const providers = normalizeBackgroundAiProviders(settings.aiProviders, settings);
+  const config = providers.find((item) => item.id === providerId) || providers.find((item) => item.enabled) || providers[0];
+  const secrets = normalizeBackgroundAiSecrets(data.dictFloatAiSecrets, data.dictFloatCustomAiSecret, providers);
+  const apiKey = String(secrets[config.id]?.apiKey || '').trim();
+  if (!config) throw new Error('AI Provider is not configured.');
+  if (!config.enabled && providerId && !options.allowDisabled) throw new Error(`${config.providerName || 'AI Provider'} is disabled in Settings.`);
+  if (!apiKey) throw new Error(`${config.providerName || 'AI Provider'} API Key is empty.`);
+  if (!config.apiUrl) throw new Error(`${config.providerName || 'AI Provider'} API URL is empty.`);
+  if (!config.model) throw new Error(`${config.providerName || 'AI Provider'} model is empty.`);
+  if (text.length > config.maxTextLength) throw new Error(`Selected text is longer than ${config.providerName || 'AI Provider'} Max Text Length (${config.maxTextLength}).`);
 
   const endpoint = normalizeCustomAiEndpoint(config.apiUrl);
   const userPrompt = String(config.userPromptTemplate || defaultCustomAiProvider().userPromptTemplate).includes('{{text}}')
@@ -513,16 +523,16 @@ async function translateWithCustomAi(rawText) {
   try { body = bodyText ? JSON.parse(bodyText) : null; } catch (_) { body = null; }
   if (!response.ok) {
     const detail = body?.error?.message || body?.message || bodyText.slice(0, 240) || response.statusText;
-    throw new Error(`Custom AI request failed (${response.status}): ${detail}`);
+    throw new Error(`${config.providerName || 'AI Provider'} request failed (${response.status}): ${detail}`);
   }
   const content = extractOpenAiCompatibleContent(body).trim();
-  if (!content) throw new Error('Custom AI returned an empty response.');
-  return { translation: content, provider: config.providerName || 'Custom AI', sourceText: text };
+  if (!content) throw new Error(`${config.providerName || 'AI Provider'} returned an empty response.`);
+  return { translation: content, provider: config.providerName || 'AI Provider', sourceText: text };
 }
 
 function normalizeCustomAiEndpoint(input) {
   const raw = String(input || '').trim();
-  if (!/^https?:\/\//i.test(raw)) throw new Error('Custom AI API URL must start with http:// or https://');
+  if (!/^https?:\/\//i.test(raw)) throw new Error('AI Provider API URL must start with http:// or https://');
   const cleaned = raw.replace(/\/+$/, '');
   return /\/chat\/completions$/i.test(cleaned) ? cleaned : `${cleaned}/chat/completions`;
 }
@@ -542,6 +552,7 @@ function extractOpenAiCompatibleContent(body) {
 function normalizeBackgroundSettings(input) {
   const raw = input && typeof input === 'object' ? input : {};
   const providers = raw.translationProviders && typeof raw.translationProviders === 'object' ? raw.translationProviders : {};
+  const aiProviders = normalizeBackgroundAiProviders(raw.aiProviders, raw);
   return {
     ...defaultSettings(),
     ...raw,
@@ -552,23 +563,58 @@ function normalizeBackgroundSettings(input) {
       doubao: providers.doubao === true,
       customAi: providers.customAi === true
     },
-    customAiProvider: normalizeBackgroundCustomAiProvider(raw.customAiProvider)
+    customAiProvider: normalizeBackgroundCustomAiProvider(raw.customAiProvider),
+    aiProviders
   };
 }
 
 function normalizeBackgroundCustomAiProvider(input) {
+  return normalizeBackgroundAiProvider(input || defaultCustomAiProvider(), 0);
+}
+
+function normalizeBackgroundAiProvider(input, index = 0) {
   const defaults = defaultCustomAiProvider();
   const value = input && typeof input === 'object' ? input : {};
   return {
-    providerName: String(value.providerName || defaults.providerName).trim() || defaults.providerName,
+    id: String(value.id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || `ai_${index + 1}`,
+    enabled: value.enabled === true,
+    providerName: String(value.providerName || value.name || defaults.providerName).trim() || defaults.providerName,
     apiUrl: String(value.apiUrl || '').trim(),
     model: String(value.model || '').trim(),
+    promptPreset: String(value.promptPreset || 'custom'),
     systemPrompt: String(value.systemPrompt || defaults.systemPrompt),
     userPromptTemplate: String(value.userPromptTemplate || defaults.userPromptTemplate),
     temperature: clampNumber(Number(value.temperature), 0, 2, defaults.temperature),
     maxTextLength: clampNumber(Number(value.maxTextLength), 100, 30000, defaults.maxTextLength),
-    maxOutputTokens: clampNumber(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens)
+    maxOutputTokens: clampNumber(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens),
+    order: Number.isFinite(Number(value.order)) ? Number(value.order) : index + 1
   };
+}
+
+function normalizeBackgroundAiProviders(input, rawSettings = null) {
+  if (Array.isArray(input) && input.length) return input.map((item, index) => normalizeBackgroundAiProvider(item, index));
+  const raw = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
+  if (raw.customAiProvider && typeof raw.customAiProvider === 'object') {
+    const legacy = raw.customAiProvider;
+    const configured = String(legacy.apiUrl || '').trim() || String(legacy.model || '').trim() || raw.translationProviders?.customAi === true;
+    if (configured) return [normalizeBackgroundAiProvider({ id: 'ai_legacy_custom', enabled: raw.translationProviders?.customAi === true, ...legacy }, 0)];
+  }
+  return defaultAiProviders();
+}
+
+function normalizeBackgroundAiSecrets(input, legacySecret = null, providers = []) {
+  const source = input && typeof input === 'object' ? input : {};
+  const result = {};
+  providers.forEach((provider) => {
+    const item = source[provider.id] && typeof source[provider.id] === 'object' ? source[provider.id] : {};
+    result[provider.id] = { apiKey: String(item.apiKey || '').trim() };
+  });
+  const legacyKey = legacySecret && typeof legacySecret === 'object' ? String(legacySecret.apiKey || '').trim() : '';
+  if (legacyKey) {
+    const legacyProvider = providers.find((item) => item.id === 'ai_legacy_custom') || providers[0];
+    if (legacyProvider && !result[legacyProvider.id]?.apiKey) result[legacyProvider.id] = { apiKey: legacyKey };
+  }
+  return result;
 }
 
 function clampNumber(value, min, max, fallback) {
