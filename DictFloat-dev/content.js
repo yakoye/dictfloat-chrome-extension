@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.14'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.15'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -2055,7 +2055,11 @@ ${scope} :where(hr) { border-color:#34445e !important; }
 
   function handleSelectionKeyup(event) {
     if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
-    if (event.key === 'Shift' || event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') {
+    // Some login and embedded account pages dispatch a keyboard-like event
+    // without a string `key` property. Treat it as a non-selection key instead
+    // of calling startsWith() on undefined.
+    const key = typeof event?.key === 'string' ? event.key : '';
+    if (key === 'Shift' || key.startsWith('Arrow') || key === 'Home' || key === 'End') {
       // Keyboard selection has no pointer drag, so a short settle delay is enough.
       scheduleSelectionCheck(event, 80);
     }
@@ -2215,13 +2219,14 @@ ${scope} :where(hr) { border-color:#34445e !important; }
 
   function bubbleAnchorPenalty(candidate, rect) {
     let penalty = 0;
+    const anchor = String(candidate?.anchor || '');
     // Prefer the elevated position whenever there is room, then choose the
     // other side before dropping below the selection.
-    if (candidate.anchor.startsWith('below')) penalty += 24;
-    if (candidate.anchor.startsWith('above') && rect.top < 66) penalty += 80;
-    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 66) penalty += 80;
-    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 46) penalty += 10;
-    if (candidate.anchor.endsWith('left') && rect.left < 46) penalty += 10;
+    if (anchor.startsWith('below')) penalty += 24;
+    if (anchor.startsWith('above') && rect.top < 66) penalty += 80;
+    if (anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 66) penalty += 80;
+    if (anchor.endsWith('right') && (window.innerWidth - rect.right) < 46) penalty += 10;
+    if (anchor.endsWith('left') && rect.left < 46) penalty += 10;
     return penalty;
   }
 
