@@ -53,10 +53,6 @@
           </div>
         </div>
       </div>
-      <div id="libraryConnectionNotice" class="library-connection-notice" hidden>
-        <span id="libraryConnectionNoticeText"></span>
-        <button id="reconnectDictionaryRootInline" type="button">Reconnect root</button>
-      </div>
       <div id="librarySourceList" class="dictionary-list library-source-list"></div>
       <div class="library-progress">
         <button id="cancelMdictIndex" type="button" class="danger" hidden>Cancel indexing</button>
@@ -64,29 +60,29 @@
       </div>
     </section>
 
-    <section class="card recovery-card">
-      <div class="section-title recovery-heading">
-        <div>
-          <h2>Backup &amp; recovery</h2>
-          <p class="hint">Keep a small backup of DictFloat settings and editable data. Linked dictionary files stay in your local folders.</p>
-        </div>
-      </div>
-      <div class="actions recovery-actions">
-        <button id="reconnectDictionaryRoot" type="button">Reconnect dictionary root</button>
-        <button id="exportBackup" type="button">Export backup</button>
-        <label class="file-btn">Import backup<input id="importBackup" type="file" accept=".json,application/json"></label>
-      </div>
-      <details class="recovery-details">
-        <summary>More data tools</summary>
-        <div class="actions">
-          <button id="exportJson" type="button">Export editable JSON</button>
-          <button id="exportCsv" type="button">Export editable CSV</button>
-          <button class="danger" id="clearEntries" type="button">Clear all glossary entries</button>
-        </div>
-      </details>
+    <section class="card">
+      <h2>Backup</h2>
+      <p class="hint">Export editable entries and source settings.</p>
+      <div class="actions"><button id="exportJson" type="button">Export all JSON</button><button id="exportCsv" type="button">Export all CSV</button><button class="danger" id="clearEntries" type="button">Clear all glossary entries</button></div>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
+<script>
+window.confirm=()=>true; window.prompt=()=>null;
+const store={
+ dictFloatSettings:{selectionMode:'bubble',fontSize:12,panelWidth:380,theme:'system',onlineLookup:true},
+ dictFloatEntries:[{id:'e1',dictionaryId:'my-glossary',term:'RCB',definition:'Read Completion Boundary'},{id:'e2',dictionaryId:'imported1',term:'TLP',definition:'Transaction Layer Packet'}],
+ dictFloatDictionaries:[
+  {id:'pcie-starter',name:'PCIe Starter',enabled:true,builtIn:true},
+  {id:'my-glossary',name:'My Glossary',enabled:true,builtIn:false},
+  {id:'imported1',name:'PCIe notes',enabled:true,builtIn:false,fileName:'pcie-notes.csv',sourceKind:'imported'}
+ ],
+ dictFloatMdictSources:[{id:'mdx1',name:'The Little Dict',enabled:true,fileName:'TLD.mdx',fileSize:189000000,recordCount:432647,status:'ready',cssFiles:[{name:'p.css'}],mddFiles:[{name:'TLD.mdd'},{name:'TLD.1.mdd'}],header:{engineVersion:'2.0'},lookup:{}}],
+ dictFloatWudaoSource:{installed:true,enabled:true,name:'Wudao · Offline',totalSize:87000000,recordCounts:{en:96233,zh:71658},fileNames:{enIndex:'en.ind',enData:'en.z',zhIndex:'zh.ind',zhData:'zh.z'}},
+ dictFloatSourceOrder:['mdx:mdx1','wudao','glossary:imported1','glossary:my-glossary','glossary:pcie-starter','online']
+};
+window.chrome={storage:{local:{get:async keys=>Object.fromEntries(keys.map(k=>[k,store[k]])),set:async obj=>Object.assign(store,obj),remove:async key=>{delete store[key]}}},runtime:{sendMessage:async()=>({}),getURL:p=>p}};
+</script>
   <script src="mdict-db.js"></script>
     <script src="options.js"></script>
 </body>

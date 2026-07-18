@@ -1,4 +1,4 @@
-# DictFloat v0.4.5 — Backup & dictionary-root recovery
+# DictFloat v0.4.6 — Backup & dictionary-root recovery
 
 ## What changed / 本版重点
 
@@ -39,7 +39,7 @@
 MDX source configuration, names, enable state, CSS mode, and lookup order are restored. Original `.mdx`, `.mdd`, `.css`, and Wudao files continue to stay in your own folders.
 
 
-## v0.4.5
+## v0.4.6
 
 - Selection lookup now listens from window capture, selectionchange, keyboard, touch, open ShadowRoot, and eligible child-frame contexts for reader-mode compatibility.
 - Content scripts now run in all frames, including about:blank reader frames when Chrome permits injection.

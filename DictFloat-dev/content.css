@@ -665,3 +665,8 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-mdx-html .gram { color:#a9bad0; }
 .dictfloat-mdx-duplicate-term { margin:8px 0 4px; color:#708198; font-size:10px; font-weight:700; }
 .dark .dictfloat-mdx-duplicate-term { color:#aab8cb; }
+
+.dictfloat-mdx-error-line { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.dictfloat-mdx-error-line .dictfloat-online-status { min-width:0; }
+.dictfloat-mdx-reconnect { flex:0 0 auto; min-height:26px; padding:4px 8px; border:1px solid var(--df-border); border-radius:7px; background:var(--df-panel); color:var(--df-muted); font:inherit; font-size:11px; cursor:pointer; }
+.dictfloat-mdx-reconnect:hover { border-color:var(--df-accent); color:var(--df-accent); }

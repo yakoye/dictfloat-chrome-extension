@@ -1,3 +1,9 @@
+# DictFloat development update workflow
+
+## v0.4.6: linked MDX health
+
+MDX metadata in Settings and the actual local `FileSystemFileHandle` are stored separately. After any extension removal, ID change, profile reset, or lost file permission, use **Reconnect dictionary root** once. The library will now show this condition explicitly instead of leaving stale sources marked ready.
+
 # DictFloat Development Update Guide / DictFloat 开发更新指南
 
 ## One fixed extension folder / 固定一个开发目录

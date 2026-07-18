@@ -92,11 +92,65 @@
     }
   }
 
+  // A source summary in chrome.storage.local is intentionally light-weight.
+  // The actual FileSystemFileHandle plus block index live here in IndexedDB.
+  // Keep this health probe explicit so the UI never labels a stale summary as
+  // “Linked” when its real on-demand file connection no longer exists.
+  async function inspectLinkedSource(id) {
+    const source = await getLinkedSource(id);
+    if (!source || !source.mdxHandle || !source.index) {
+      return {
+        ready: false,
+        source: null,
+        code: 'missing-link',
+        message: 'Saved MDX link is missing. Reconnect the dictionary root.'
+      };
+    }
+    try {
+      const allowed = await hasReadPermission(source.mdxHandle);
+      if (!allowed) {
+        return {
+          ready: false,
+          source,
+          code: 'permission',
+          message: 'Folder permission needs reconnecting.'
+        };
+      }
+      const file = await source.mdxHandle.getFile();
+      if (!file) {
+        return {
+          ready: false,
+          source,
+          code: 'file-unavailable',
+          message: 'Linked MDX file is unavailable. Reconnect the dictionary root.'
+        };
+      }
+      if (Number(source.index?.fileSize || 0) && Number(source.index.fileSize) !== Number(file.size)) {
+        return {
+          ready: false,
+          source,
+          code: 'file-changed',
+          message: 'Linked MDX file changed. Rebuild or reconnect this dictionary.'
+        };
+      }
+      return { ready: true, source, code: 'ready', message: '' };
+    } catch (error) {
+      return {
+        ready: false,
+        source,
+        code: 'file-unavailable',
+        message: 'Linked MDX file is unavailable. Reconnect the dictionary root.',
+        detail: String(error?.message || error || '')
+      };
+    }
+  }
+
   globalThis.DictFloatMdictDB = {
     putLinkedSource,
     getLinkedSource,
     deleteLinkedSource,
     clearLinkedSources,
-    hasReadPermission
+    hasReadPermission,
+    inspectLinkedSource
   };
 })();

@@ -42,6 +42,7 @@ async function init() {
   mdictSources = Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources.map(normalizeMdictSource) : [];
   wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
   sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
+  await reconcileMdictSourceHealth();
 
   for (const key of Object.keys(defaults)) {
     const element = $(key);
@@ -61,6 +62,7 @@ async function init() {
   $('exportBackup').addEventListener('click', exportBackup);
   $('importBackup').addEventListener('change', importBackup);
   $('reconnectDictionaryRoot').addEventListener('click', reconnectDictionaryRoot);
+  $('reconnectDictionaryRootInline')?.addEventListener('click', reconnectDictionaryRoot);
   $('importFile').addEventListener('change', importFile);
   $('clearEntries').addEventListener('click', clearEntries);
   $('toggleAddSource').addEventListener('click', toggleAddSourceMenu);
@@ -121,6 +123,40 @@ function renderMdictSources() { renderDictionaryLibrary(); }
 function renderWudaoSource() { renderDictionaryLibrary(); }
 function renderSourceOrder() { renderDictionaryLibrary(); }
 
+async function reconcileMdictSourceHealth() {
+  if (!globalThis.DictFloatMdictDB?.inspectLinkedSource || !mdictSources.length) return;
+  let changed = false;
+  const updated = [];
+  for (const source of mdictSources) {
+    const next = { ...source };
+    try {
+      const health = await DictFloatMdictDB.inspectLinkedSource(source.id);
+      if (health.ready) {
+        if (next.status !== 'ready' || next.connectionMessage) {
+          next.status = 'ready';
+          next.connectionMessage = '';
+          changed = true;
+        }
+      } else {
+        if (next.status !== 'reconnect' || next.connectionMessage !== health.message) {
+          next.status = 'reconnect';
+          next.connectionMessage = health.message;
+          changed = true;
+        }
+      }
+    } catch (_) {
+      if (next.status !== 'reconnect' || !next.connectionMessage) {
+        next.status = 'reconnect';
+        next.connectionMessage = 'Saved MDX link is unavailable. Reconnect the dictionary root.';
+        changed = true;
+      }
+    }
+    updated.push(normalizeMdictSource(next));
+  }
+  mdictSources = updated;
+  if (changed) await chrome.storage.local.set({ dictFloatMdictSources: mdictSources });
+}
+
 function renderDictionaryLibrary() {
   const list = $('librarySourceList');
   if (!list) return;
@@ -144,6 +180,15 @@ function renderDictionaryLibrary() {
     empty.className = 'empty-list';
     empty.textContent = 'No dictionary source yet. Use + Add source to connect a dictionary or create a glossary.';
     list.append(empty);
+  }
+  const stale = mdictSources.filter((source) => source.status !== 'ready');
+  const notice = $('libraryConnectionNotice');
+  const noticeText = $('libraryConnectionNoticeText');
+  if (notice && noticeText) {
+    notice.hidden = !stale.length;
+    noticeText.textContent = stale.length === 1
+      ? '1 linked dictionary needs reconnecting.'
+      : `${stale.length} linked dictionaries need reconnecting.`;
   }
 }
 
@@ -269,7 +314,7 @@ function buildMdictLibraryRow(source, index) {
   const fileLine = `🔗 ${source.fileName || source.name} · ${formatSize(source.fileSize)} · ${css} · ${mdd}`;
   const state = source.status === 'ready'
     ? `Linked · on-demand lookup · ${source.cssMode === 'compact' ? 'Compact style' : 'Original CSS'}`
-    : 'Reconnect required · original file was not copied into Chrome';
+    : `Reconnect required · ${source.connectionMessage || 'the local MDX link is unavailable'}`;
   const { row, actions } = makeLibraryBaseRow(index, sourceKeyForMdict(source), source.enabled, source.name, 'Linked MDX', fileLine, state, async (checked) => {
     source.enabled = checked;
     await saveMdictSources();
@@ -699,7 +744,8 @@ async function linkMdictCandidate(folderHandle, candidate, allFiles, reuseId) {
     recordCount: index.entryCount,
     parser: 'dictfloat-linked-mdx-v1',
     cssMode: resources.css.length ? 'safe-original' : 'compact',
-    status: 'ready'
+    status: 'ready',
+    connectionMessage: ''
   });
   index.fileSize = file.size;
   index.lastModified = file.lastModified;
@@ -855,7 +901,8 @@ function normalizeMdictSource(source) {
     recordCount: Number(source.recordCount || 0),
     parser: String(source.parser || ''),
     cssMode: source.cssMode === 'compact' ? 'compact' : 'safe-original',
-    status
+    status,
+    connectionMessage: status === 'ready' ? '' : String(source.connectionMessage || 'Reconnect the dictionary root.')
   };
 }
 

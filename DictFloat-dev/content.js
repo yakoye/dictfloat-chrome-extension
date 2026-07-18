@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.5';
+  const RUNTIME_VERSION = '0.4.6';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -872,9 +872,15 @@
     if (lookup.status === 'loading') {
       section.body.append(el('div', 'dictfloat-online-status', 'Searching linked MDX…'));
     } else if (lookup.status === 'error') {
-      const status = el('div', 'dictfloat-online-status', 'MDX lookup is unavailable.');
+      const status = el('div', 'dictfloat-online-status', 'MDX link needs reconnecting.');
       status.title = lookup.error || '';
-      section.body.append(status);
+      const action = el('button', 'dictfloat-mdx-reconnect', 'Settings');
+      action.type = 'button';
+      action.title = 'Open Settings and reconnect the dictionary root';
+      action.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'DICTFLOAT_OPEN_OPTIONS' }));
+      const line = el('div', 'dictfloat-mdx-error-line');
+      line.append(status, action);
+      section.body.append(line);
     } else if (lookup.status === 'done' && data.definitions?.length) {
       const scopeId = `dictfloat-mdx-${String(source.id).replace(/[^a-z0-9_-]/gi, '')}`;
       const definition = el('div', 'dictfloat-mdx-html');

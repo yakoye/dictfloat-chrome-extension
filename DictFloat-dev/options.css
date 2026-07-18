@@ -190,3 +190,13 @@ input[type="checkbox"]:disabled { cursor:not-allowed; opacity:.45; }
   .recovery-details summary { color:#aab7ca; }
   .recovery-details summary:hover { color:#e7edf7; }
 }
+
+/* Linked dictionary health is deliberately compact: a stale record should be
+   visible, but not turn the library into a warning dashboard. */
+.library-connection-notice { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; padding:7px 9px; border:1px solid #f2c8d8; border-radius:8px; background:#fff8fb; color:#b42362; font-size:12px; line-height:1.35; }
+.library-connection-notice[hidden] { display:none; }
+.library-connection-notice button { min-height:27px; padding:4px 8px; border-color:#efb7ce; color:#b42362; background:#fff; font-size:11px; white-space:nowrap; }
+@media (prefers-color-scheme: dark) {
+  .library-connection-notice { border-color:#733153; background:#351a2b; color:#f9a8d4; }
+  .library-connection-notice button { border-color:#8f3d68; background:#241424; color:#f9a8d4; }
+}

@@ -1,7 +1,7 @@
 importScripts('mdict-db.js', 'mdict-core.js');
 
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.4.5';
+const CONTENT_RUNTIME_VERSION = '0.4.6';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -169,9 +169,37 @@ async function lookupMdict(source, rawQuery) {
   const query = String(rawQuery || '').trim();
   if (!query || !source?.id) return null;
   if (!globalThis.DictFloatMdictDB || !globalThis.DictFloatMdictCore) throw new Error('MDX reader is unavailable. Reload DictFloat.');
-  const linked = await DictFloatMdictDB.getLinkedSource(source.id);
-  if (!linked) throw new Error('Dictionary link is missing. Open Settings and reconnect its folder.');
-  return DictFloatMdictCore.lookupLinkedSource(linked, query);
+
+  const health = await DictFloatMdictDB.inspectLinkedSource(source.id);
+  if (!health.ready) {
+    await markMdictSourceReconnect(source.id, health.message);
+    throw new Error(health.message);
+  }
+  try {
+    return await DictFloatMdictCore.lookupLinkedSource(health.source, query);
+  } catch (error) {
+    const message = String(error?.message || error || 'MDX lookup failed.');
+    if (/metadata is missing|permission is not available|linked MDX file changed|linked MDX file/i.test(message)) {
+      await markMdictSourceReconnect(source.id, message);
+    }
+    throw error;
+  }
+}
+
+async function markMdictSourceReconnect(sourceId, message = '') {
+  try {
+    const stored = await chrome.storage.local.get('dictFloatMdictSources');
+    const sources = Array.isArray(stored.dictFloatMdictSources) ? stored.dictFloatMdictSources : [];
+    let changed = false;
+    const next = sources.map((item) => {
+      if (String(item?.id) !== String(sourceId)) return item;
+      changed = true;
+      return { ...item, status: 'reconnect', connectionMessage: String(message || 'Reconnect the dictionary root.') };
+    });
+    if (changed) await chrome.storage.local.set({ dictFloatMdictSources: next });
+  } catch (_) {
+    // Lookup errors still reach the panel even if the summary cannot be updated.
+  }
 }
 
 async function lookupOnline(rawQuery) {
