@@ -1,5 +1,7 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.7';
+  const RUNTIME_VERSION = (() => {
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.4.8'; }
+  })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -16,6 +18,7 @@
   window.__DICTFLOAT_LOADED__ = true;
 
   const storage = chrome.storage.local;
+  let extensionContextInvalidated = false;
   const RECOVERY_SNAPSHOT_KEY = 'dictFloatRecoverySnapshots';
   const RECOVERY_SNAPSHOT_LIMIT = 5;
   const RECOVERY_STORAGE_KEYS = [
@@ -70,18 +73,132 @@
   const instance = { version: RUNTIME_VERSION, token: INSTANCE_TOKEN, destroy: destroyInstance };
   window.__DICTFLOAT_INSTANCE__ = instance;
 
+  function isExtensionContextAvailable() {
+    try {
+      return !extensionContextInvalidated && !!chrome?.runtime?.id && !!chrome?.storage?.local;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isContextInvalidatedError(error) {
+    const message = String(error?.message || error || '');
+    return !isExtensionContextAvailable() || /extension context invalidated|context invalidated|message port closed|receiving end does not exist|could not establish connection/i.test(message);
+  }
+
+  function showContextInvalidatedNotice() {
+    if (!state.mount?.isConnected) return;
+    if (state.mount.querySelector('.dictfloat-context-notice')) return;
+    const notice = document.createElement('div');
+    notice.className = 'dictfloat-context-notice';
+    notice.textContent = 'DictFloat was updated. Refresh this page to continue.';
+    notice.style.cssText = [
+      'position:fixed', 'left:16px', 'right:16px', 'bottom:16px',
+      'z-index:2147483647', 'pointer-events:auto', 'padding:10px 12px',
+      'border:1px solid #f0a3c9', 'border-radius:10px', 'background:#fff',
+      'color:#2f3a50', 'font:12px/1.4 system-ui,sans-serif',
+      'box-shadow:0 8px 24px rgba(20,30,50,.18)', 'text-align:center'
+    ].join(';');
+    state.mount.append(notice);
+  }
+
+  function handleContextInvalidation(error) {
+    if (extensionContextInvalidated) return;
+    extensionContextInvalidated = true;
+    state.selectionTimer && clearTimeout(state.selectionTimer);
+    state.selectionTimer = null;
+    state.historyUndo?.timer && clearTimeout(state.historyUndo.timer);
+    state.historyUndo = null;
+    // Do not call Chrome APIs here: they are precisely what just became invalid.
+    try { window.removeEventListener('mouseup', handleSelection, true); } catch (_) {}
+    try { window.removeEventListener('pointerup', handleSelection, true); } catch (_) {}
+    try { window.removeEventListener('touchend', handleSelection, true); } catch (_) {}
+    try { window.removeEventListener('keyup', handleSelectionKeyup, true); } catch (_) {}
+    try { document.removeEventListener('selectionchange', handleSelectionChange, true); } catch (_) {}
+    try { document.removeEventListener('keydown', handleGlobalKeys, true); } catch (_) {}
+    try { state.themeMedia?.removeEventListener?.('change', state.themeListener); } catch (_) {}
+    try { state.dragCleanup?.(); } catch (_) {}
+    showContextInvalidatedNotice();
+    // Expected during extension reload. Keep DevTools clean while making the
+    // required recovery action visible to the user.
+    void error;
+  }
+
+  function handleAsyncError(error) {
+    if (isContextInvalidatedError(error)) {
+      handleContextInvalidation(error);
+      return;
+    }
+    console.error('DictFloat action failed.', error);
+  }
+
+  function guardedAsync(handler) {
+    return (...args) => {
+      Promise.resolve(handler(...args)).catch(handleAsyncError);
+    };
+  }
+
+  async function safeStorageGet(keys) {
+    if (!isExtensionContextAvailable()) {
+      handleContextInvalidation();
+      return null;
+    }
+    try {
+      return await storage.get(keys);
+    } catch (error) {
+      if (isContextInvalidatedError(error)) {
+        handleContextInvalidation(error);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async function safeStorageSet(value) {
+    if (!isExtensionContextAvailable()) {
+      handleContextInvalidation();
+      return false;
+    }
+    try {
+      await storage.set(value);
+      return true;
+    } catch (error) {
+      if (isContextInvalidatedError(error)) {
+        handleContextInvalidation(error);
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async function safeRuntimeSend(message) {
+    if (!isExtensionContextAvailable()) {
+      handleContextInvalidation();
+      return null;
+    }
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (error) {
+      if (isContextInvalidatedError(error)) {
+        handleContextInvalidation(error);
+        return null;
+      }
+      throw error;
+    }
+  }
+
   function isCurrentInstance() {
-    return !state.destroyed && document.documentElement.dataset.dictfloatInstanceToken === INSTANCE_TOKEN;
+    return !extensionContextInvalidated && !state.destroyed && document.documentElement.dataset.dictfloatInstanceToken === INSTANCE_TOKEN;
   }
 
   function isOwnedHost(node) {
     return !!node && node.getAttribute?.('data-dictfloat-owner') === INSTANCE_TOKEN;
   }
 
-  void init();
+  void init().catch(handleAsyncError);
 
   async function init() {
-    const data = await storage.get([
+    const data = await safeStorageGet([
       'dictFloatEntries',
       'dictFloatDictionaries',
       'dictFloatSettings',
@@ -92,7 +209,7 @@
       'dictFloatSourceOrder',
       'dictFloatCollapsedSources'
     ]);
-    if (!isCurrentInstance()) return;
+    if (!data || !isCurrentInstance()) return;
     state.entries = Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries.map(normalizeEntry) : [];
     state.dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
     state.settings = { ...DEFAULT_SETTINGS, ...(data.dictFloatSettings || {}) };
@@ -117,9 +234,9 @@
       if (!state.destroyed && state.settings.theme === 'system' && state.host?.isConnected) render();
     };
     state.themeMedia.addEventListener?.('change', state.themeListener);
-    chrome.runtime.onMessage.addListener(onRuntimeMessage);
-    chrome.storage.onChanged.addListener(onStorageChanged);
-    void ensureStyles();
+    try { chrome.runtime.onMessage.addListener(onRuntimeMessage); } catch (error) { handleContextInvalidation(error); return; }
+    try { chrome.storage.onChanged.addListener(onStorageChanged); } catch (error) { handleContextInvalidation(error); return; }
+    void ensureStyles().catch(handleAsyncError);
     if (state.host?.isConnected) render();
   }
 
@@ -171,8 +288,8 @@
     if (state.historyUndo?.timer) clearTimeout(state.historyUndo.timer);
     state.historyUndo = null;
     state.themeMedia?.removeEventListener?.('change', state.themeListener);
-    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
-    chrome.storage.onChanged.removeListener(onStorageChanged);
+    try { chrome.runtime.onMessage.removeListener(onRuntimeMessage); } catch (_) {}
+    try { chrome.storage.onChanged.removeListener(onStorageChanged); } catch (_) {}
     state.dragCleanup?.();
     state.dragCleanup = null;
     removeBubble();
@@ -189,6 +306,10 @@
 
   async function ensureStyles() {
     if (!state.cssPromise) {
+      if (!isExtensionContextAvailable()) {
+        handleContextInvalidation();
+        return Promise.reject(new Error('Extension context invalidated.'));
+      }
       state.cssPromise = fetch(chrome.runtime.getURL('content.css'))
         .then((response) => {
           if (!response.ok) throw new Error('Unable to load DictFloat styles');
@@ -539,7 +660,8 @@
   }
 
   async function createContentRecoverySnapshot(label) {
-    const data = await storage.get([...RECOVERY_STORAGE_KEYS, RECOVERY_SNAPSHOT_KEY]);
+    const data = await safeStorageGet([...RECOVERY_STORAGE_KEYS, RECOVERY_SNAPSHOT_KEY]);
+    if (!data) return false;
     const current = Array.isArray(data[RECOVERY_SNAPSHOT_KEY]) ? data[RECOVERY_SNAPSHOT_KEY] : [];
     const snapshot = {
       id: crypto.randomUUID(),
@@ -560,7 +682,7 @@
       }
     };
     const valid = current.filter((item) => item && item.data).sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-    await storage.set({ [RECOVERY_SNAPSHOT_KEY]: [snapshot, ...valid].slice(0, RECOVERY_SNAPSHOT_LIMIT) });
+    return await safeStorageSet({ [RECOVERY_SNAPSHOT_KEY]: [snapshot, ...valid].slice(0, RECOVERY_SNAPSHOT_LIMIT) });
   }
 
   function showHistoryUndo(previousHistory) {
@@ -575,10 +697,10 @@
       state.historyUndo = null;
       bar.remove();
       state.history = history;
-      await storage.set({ dictFloatHistory: history });
+      await safeStorageSet({ dictFloatHistory: history });
       renderContentOnly();
     };
-    undo.addEventListener('click', restore);
+    undo.addEventListener('click', guardedAsync(restore));
     bar.append(undo);
     state.panel?.append(bar);
     const timer = setTimeout(() => {
@@ -620,11 +742,11 @@
     const foot = el('footer', 'dictfloat-footer');
     const settingsButton = el('button', '', '⚙ Settings');
     settingsButton.type = 'button';
-    settingsButton.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'DICTFLOAT_OPEN_OPTIONS' }));
+    settingsButton.addEventListener('click', () => { void safeRuntimeSend({ type: 'DICTFLOAT_OPEN_OPTIONS' }).catch(handleAsyncError); });
     const online = el('button', 'dictfloat-online-toggle', state.settings.onlineLookup ? 'Online: On' : 'Online: Off');
     online.type = 'button';
     online.title = 'Change online lookup in Settings';
-    online.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'DICTFLOAT_OPEN_OPTIONS' }));
+    online.addEventListener('click', () => { void safeRuntimeSend({ type: 'DICTFLOAT_OPEN_OPTIONS' }).catch(handleAsyncError); });
     foot.append(settingsButton, el('span', 'grow'), online);
     return foot;
   }
@@ -779,7 +901,7 @@
     const badgeNode = el('span', 'dictfloat-source-badge', badge);
     const chevron = el('span', 'dictfloat-source-chevron', collapsed ? '›' : '⌄');
     header.append(left, badgeNode, chevron);
-    header.addEventListener('click', () => toggleSourceCollapse(key));
+    header.addEventListener('click', guardedAsync(() => toggleSourceCollapse(key)));
 
     const body = el('div', 'dictfloat-source-body');
     body.hidden = collapsed;
@@ -791,7 +913,7 @@
     const stringKey = String(key);
     if (state.collapsedSources.has(stringKey)) state.collapsedSources.delete(stringKey);
     else state.collapsedSources.add(stringKey);
-    await storage.set({ dictFloatCollapsedSources: [...state.collapsedSources] });
+    await safeStorageSet({ dictFloatCollapsedSources: [...state.collapsedSources] });
     renderContentOnly();
   }
 
@@ -840,7 +962,7 @@
     state.selectedId = entry.id;
     state.query = entry.term;
     state.draftEntry = null;
-    void addHistoryQuery(entry.term);
+    void addHistoryQuery(entry.term).catch(handleAsyncError);
     render();
   }
 
@@ -865,11 +987,11 @@
     const star = el('button', `dictfloat-star${entry.favorite ? ' on' : ''}`, entry.favorite ? '★' : '☆');
     star.type = 'button';
     star.title = entry.favorite ? 'Remove favorite' : 'Favorite';
-    star.addEventListener('click', async () => {
+    star.addEventListener('click', guardedAsync(async () => {
       entry.favorite = !entry.favorite;
       await saveEntries();
       renderContentOnly();
-    });
+    }));
     row.append(star);
     box.append(row);
 
@@ -995,7 +1117,7 @@
       const action = el('button', 'dictfloat-mdx-reconnect', 'Settings');
       action.type = 'button';
       action.title = 'Open Settings and reconnect the dictionary root';
-      action.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'DICTFLOAT_OPEN_OPTIONS' }));
+      action.addEventListener('click', () => { void safeRuntimeSend({ type: 'DICTFLOAT_OPEN_OPTIONS' }).catch(handleAsyncError); });
       const line = el('div', 'dictfloat-mdx-error-line');
       line.append(status, action);
       section.body.append(line);
@@ -1211,7 +1333,7 @@
     clear.type = 'button';
     clear.title = 'Clear history';
     clear.setAttribute('aria-label', 'Clear history');
-    clear.addEventListener('click', async () => {
+    clear.addEventListener('click', guardedAsync(async () => {
       const count = state.history.length;
       const approved = await confirmInPanel({
         title: 'Clear query history?',
@@ -1226,10 +1348,10 @@
       if (!approved) return;
       const previousHistory = state.history.map((item) => ({ ...item }));
       state.history = [];
-      await storage.set({ dictFloatHistory: [] });
+      await safeStorageSet({ dictFloatHistory: [] });
       renderContentOnly();
       showHistoryUndo(previousHistory);
-    });
+    }));
     head.append(clear);
     box.append(head);
 
@@ -1324,7 +1446,7 @@
     if (editing) {
       const remove = el('button', 'dictfloat-delete-entry', 'Delete');
       remove.type = 'button';
-      remove.addEventListener('click', async () => {
+      remove.addEventListener('click', guardedAsync(async () => {
         const approved = await confirmInPanel({
           title: `Delete “${editing.term}”?`,
           message: 'This removes this editable entry from its glossary.',
@@ -1335,18 +1457,18 @@
         await createContentRecoverySnapshot(`Before deleting entry: ${editing.term}`);
         state.entries = state.entries.filter((item) => item.id !== editing.id);
         state.history = state.history.filter((item) => item.id !== editing.id);
-        await storage.set({ dictFloatEntries: state.entries.map(normalizeEntry), dictFloatHistory: state.history });
+        await safeStorageSet({ dictFloatEntries: state.entries.map(normalizeEntry), dictFloatHistory: state.history });
         state.editingId = null;
         state.selectedId = null;
         state.view = 'lookup';
         renderContentOnly();
-      });
+      }));
       controls.append(remove);
     }
     controls.append(save);
     form.append(controls);
 
-    form.addEventListener('submit', async (event) => {
+    form.addEventListener('submit', guardedAsync(async (event) => {
       event.preventDefault();
       const formData = new FormData(form);
       const term = String(formData.get('term') || '').trim();
@@ -1380,7 +1502,7 @@
       state.query = term;
       state.selectedId = value.id;
       renderContentOnly();
-    });
+    }));
     box.append(form);
   }
 
@@ -1404,22 +1526,23 @@
     state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready').forEach((source) => {
       state.mdx.set(source.id, { query, status: 'loading', data: null, error: '' });
     });
-    if (query) void addHistoryQuery(query);
+    if (query) void addHistoryQuery(query).catch(handleAsyncError);
     render();
-    if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query);
+    if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query).catch(handleAsyncError);
     const mdxSources = state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready' && query);
-    if (mdxSources.length) void lookupMdictInOrder(mdxSources, query);
-    if (state.settings.onlineLookup && query) void lookupOnline(query);
+    if (mdxSources.length) void lookupMdictInOrder(mdxSources, query).catch(handleAsyncError);
+    if (state.settings.onlineLookup && query) void lookupOnline(query).catch(handleAsyncError);
     focusSearch(true);
   }
 
   async function lookupWudao(query) {
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_LOOKUP', query });
+      const response = await safeRuntimeSend({ type: 'DICTFLOAT_WUDAO_LOOKUP', query });
       if (state.query !== query) return;
       if (!response?.ok) throw new Error(response?.error || 'Wudao lookup failed');
       state.wudao = { query, status: 'done', data: response.data || null, error: '' };
     } catch (error) {
+      if (isContextInvalidatedError(error)) { handleContextInvalidation(error); return; }
       if (state.query !== query) return;
       state.wudao = { query, status: 'error', data: null, error: String(error?.message || error) };
     }
@@ -1438,11 +1561,12 @@
 
   async function lookupMdict(source, query) {
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_LOOKUP', source, query });
+      const response = await safeRuntimeSend({ type: 'DICTFLOAT_MDICT_LOOKUP', source, query });
       if (state.query !== query) return;
       if (!response?.ok) throw new Error(response?.error || 'MDX lookup failed');
       state.mdx.set(source.id, { query, status: 'done', data: response.data || null, error: '' });
     } catch (error) {
+      if (isContextInvalidatedError(error)) { handleContextInvalidation(error); return; }
       if (state.query !== query) return;
       state.mdx.set(source.id, { query, status: 'error', data: null, error: String(error?.message || error) });
     }
@@ -1451,11 +1575,12 @@
 
   async function lookupOnline(query) {
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_ONLINE_LOOKUP', query });
+      const response = await safeRuntimeSend({ type: 'DICTFLOAT_ONLINE_LOOKUP', query });
       if (state.query !== query) return;
       if (!response?.ok) throw new Error(response?.error || 'Online lookup failed');
       state.online = { query, status: 'done', data: response.data || null, error: '' };
     } catch (error) {
+      if (isContextInvalidatedError(error)) { handleContextInvalidation(error); return; }
       if (state.query !== query) return;
       state.online = { query, status: 'error', data: null, error: String(error?.message || error) };
     }
@@ -1466,11 +1591,11 @@
     const query = String(rawQuery || '').trim();
     if (!query) return;
     state.history = [{ query, at: Date.now() }, ...state.history.filter((item) => normalize(item.query) !== normalize(query))].slice(0, 50);
-    await storage.set({ dictFloatHistory: state.history });
+    await safeStorageSet({ dictFloatHistory: state.history });
   }
 
   async function saveEntries() {
-    await storage.set({ dictFloatEntries: state.entries.map(normalizeEntry) });
+    await safeStorageSet({ dictFloatEntries: state.entries.map(normalizeEntry) });
   }
 
   function queryEntries(raw) {
@@ -1906,7 +2031,7 @@
       drag = null;
       node.classList.remove('dictfloat-dragging');
       document.documentElement.style.setProperty('user-select', previousUserSelect.value, previousUserSelect.priority);
-      if (persist) void persistPanelPosition(node);
+      if (persist) void persistPanelPosition(node).catch(handleAsyncError);
     };
 
     const onMove = (event) => {
@@ -1957,7 +2082,7 @@
   async function persistPanelPosition(node, done) {
     state.position = { left: parseInt(node.style.left, 10), top: parseInt(node.style.top, 10) };
     done?.();
-    await storage.set({ dictFloatPanelPosition: state.position });
+    await safeStorageSet({ dictFloatPanelPosition: state.position });
   }
 
   function handleGlobalKeys(event) {

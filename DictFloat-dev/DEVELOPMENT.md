@@ -33,3 +33,13 @@ Do not click **Remove** unless you intentionally want to uninstall the extension
 3. Dictionary Library will show missing linked sources.
 4. Click **Find missing** and choose the common dictionary directory only when needed.
 5. DictFloat matches only the dictionaries already recorded in your backup. Other folders are ignored.
+
+## After clicking Reload / 点击 Reload 后
+
+Reloading an unpacked extension invalidates the content script already running in open tabs. DictFloat v0.4.8 suppresses the expected stale-script exception and asks you to refresh the page. For a clean test cycle:
+
+1. Click **Reload** in `chrome://extensions`.
+2. Refresh the current test tab once (`Ctrl + R` is enough).
+3. Continue testing.
+
+Clicking the DictFloat toolbar icon also checks the content-script version and reinjects the current script when required, but a normal page refresh remains the cleanest way to finish a development reload.

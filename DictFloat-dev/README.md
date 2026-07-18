@@ -1,4 +1,4 @@
-# DictFloat v0.4.7 — Data safety & recovery snapshots
+# DictFloat v0.4.8 — Data safety & recovery snapshots
 
 ## What changed / 本版重点
 
@@ -38,3 +38,10 @@
 - Snapshot restore brings back DictFloat settings and editable data.
 - MDX/MDD records are restored as configuration; Chrome may ask you to reconnect the original directory if its file permission/handle is gone.
 - Wudao snapshot records its source configuration only. The 83 MB data pack is not duplicated in snapshots.
+
+## v0.4.8 — Safe reload recovery / 安全刷新恢复
+
+- Fixes an internal version-handshake mismatch that could cause the background worker to reinject the content script unnecessarily after a reload.
+- A stale page script now handles Chrome's `Extension context invalidated` condition gracefully instead of leaving an unhandled promise error in DevTools.
+- If an old page script is still present after you press **Reload** in `chrome://extensions`, it shows a short in-panel notice: **“DictFloat was updated. Refresh this page to continue.”**
+- Toolbar actions, local storage writes, source-collapse state, drag-position persistence, and asynchronous lookup calls now use guarded extension API calls so the expected reload transition does not surface as an uncaught error.
