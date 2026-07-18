@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.5.16</div>
+      <div class="version">v0.6.2</div>
     </header>
 
     <section class="card">
@@ -36,6 +36,20 @@
       <p class="hint">Look up the word or phrase after you press Enter or use selection lookup. No API key is needed.</p>
       <label class="toggle-row"><span>Search online after Enter / selection lookup</span><input id="onlineLookup" type="checkbox"></label>
       <p class="hint">Only an actively queried term is sent to an online provider. Local glossaries and webpage content stay on this device.</p>
+    </section>
+
+
+
+    <section class="card">
+      <h2>Sentence translation <span class="beta-chip">Experimental</span></h2>
+      <p class="hint">When the query contains two or more English words, DictFloat shows a manual Translate button. Choose which free providers may be used, in this fixed fallback order.</p>
+      <div class="provider-list">
+        <label class="toggle-row provider-row"><span><strong>1. Chrome Built-in Translator</strong><small>Local browser translator when available. No external tab is opened.</small></span><input id="translateChrome" type="checkbox"></label>
+        <label class="toggle-row provider-row"><span><strong>2. Youdao Web Bridge</strong><small>Uses a user-opened or background Youdao translation page.</small></span><input id="translateYoudaoBridge" type="checkbox"></label>
+        <label class="toggle-row provider-row"><span><strong>3. Baidu Web Bridge</strong><small>Uses a user-opened or background Baidu translation page.</small></span><input id="translateBaiduBridge" type="checkbox"></label>
+        <label class="toggle-row provider-row"><span><strong>4. Doubao Web Bridge</strong><small>Uses a user-opened or background Doubao chat page and a short translation prompt.</small></span><input id="translateDoubaoBridge" type="checkbox"></label>
+      </div>
+      <p class="hint">Web bridge providers are experimental. They reuse normal translation pages and may fail if the page is not logged in, has a captcha, or changes its DOM.</p>
     </section>
 
     <section class="card library-card" id="dictionaryLibraryCard">

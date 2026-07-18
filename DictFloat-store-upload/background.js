@@ -25,7 +25,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   await sendToTab(tab.id, { type: 'DICTFLOAT_TOGGLE' });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'DICTFLOAT_OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
     return;
@@ -44,6 +44,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'DICTFLOAT_MDICT_LOOKUP') {
     lookupMdict(message.source || {}, String(message.query || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+  if (message?.type === 'DICTFLOAT_BRIDGE_TRANSLATE') {
+    translateWithWebBridge(String(message.text || ''), Array.isArray(message.providers) ? message.providers : [], sender?.tab?.id || null)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
@@ -136,7 +142,8 @@ function defaultSettings() {
     panelWidth: 380,
     theme: 'system',
     onlineLookup: true,
-    accent: 'green'
+    accent: 'green',
+    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false }
   };
 }
 
@@ -278,6 +285,167 @@ function seedEntries() {
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MRRS', aliases: ['Max Read Request Size', 'Maximum Read Request Size'], chinese: '最大读请求大小', definition: 'The maximum amount of data requested by a PCIe Memory Read Request.', tags: ['PCIe', 'TLP'], related: ['MPS', 'Completion Timeout'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
     { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'Completion Timeout', aliases: ['Cpl Timeout', 'Completion Time-out'], chinese: '完成超时', definition: 'The maximum allowed time to receive a Completion for a non-posted PCIe request before timeout handling is triggered.', tags: ['PCIe', 'Completion', 'Error Handling'], related: ['RCB', 'MRRS'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now }
   ];
+}
+
+
+// ---------------------------------------------------------------------------
+// Experimental translation web bridges
+// ---------------------------------------------------------------------------
+const WEB_BRIDGE_PROVIDERS = {
+  // Youdao often redirects fanyi.youdao.com to f.youdao.com. Query both hosts
+  // and keep the bridge tab inactive so we do not create a new visible tab on
+  // every translation request after the redirect. DictFloat never re-focuses
+  // the source tab during bridge work, avoiding surprise tab jumps.
+  youdao: {
+    key: 'youdao',
+    name: 'Youdao Web Bridge',
+    url: 'https://f.youdao.com/#/TextTranslate',
+    queryUrls: ['https://fanyi.youdao.com/*', 'https://f.youdao.com/*'],
+    requiredPattern: /(?:fanyi|f)\.youdao\.com\/.*(?:TextTranslate|AITranslate|#\/TextTranslate|#\/AITranslate)/i
+  },
+  baidu: {
+    key: 'baidu',
+    name: 'Baidu Web Bridge',
+    url: 'https://fanyi.baidu.com/mtpe-individual/transText',
+    queryUrls: ['https://fanyi.baidu.com/*'],
+    requiredPattern: /fanyi\.baidu\.com\/mtpe-individual\/transText/i
+  },
+  doubao: {
+    key: 'doubao',
+    name: 'Doubao Web Bridge',
+    url: 'https://www.doubao.com/chat/',
+    queryUrls: ['https://www.doubao.com/*'],
+    requiredPattern: /www\.doubao\.com\/chat/i
+  }
+};
+
+async function translateWithWebBridge(rawText, providerKeys, sourceTabId = null) {
+  const text = String(rawText || '').trim().replace(/\s+/g, ' ');
+  if (!text) throw new Error('No text to translate.');
+  if (text.length > 8000) throw new Error('Selected text is too long for web bridge translation.');
+  const ordered = providerKeys.map((key) => String(key || '').toLowerCase()).filter((key) => WEB_BRIDGE_PROVIDERS[key]);
+  if (!ordered.length) throw new Error('No web bridge translation provider is enabled.');
+  const errors = [];
+  for (const key of ordered) {
+    try {
+      const data = await translateWithOneWebBridge(key, text, sourceTabId);
+      if (data?.translation) return data;
+      throw new Error('No translation returned.');
+    } catch (error) {
+      errors.push(`${WEB_BRIDGE_PROVIDERS[key].name}: ${cleanBridgeError(error)}`);
+    }
+  }
+  throw new Error(errors.join(' | ') || 'Web bridge translation failed.');
+}
+
+async function translateWithOneWebBridge(providerKey, text, sourceTabId = null) {
+  const config = WEB_BRIDGE_PROVIDERS[providerKey];
+  const tab = await ensureBridgeTab(config, sourceTabId);
+  const response = await sendBridgeRequest(tab.id, { type: 'DICTFLOAT_WEB_BRIDGE_TRANSLATE', provider: providerKey, text }, config, sourceTabId);
+  if (!response?.ok) throw new Error(response?.error || `${config.name} failed.`);
+  return { ...response.data, provider: config.name };
+}
+
+async function ensureBridgeTab(config, sourceTabId = null) {
+  const tabs = await chrome.tabs.query({ url: config.queryUrls }).catch(() => []);
+  const existing = selectBestBridgeTab(tabs, config);
+  if (existing?.id) {
+    if (existing.status !== 'complete') await waitForTabComplete(existing.id, 12000).catch(() => undefined);
+    if (needsBridgeNavigation(existing, config)) {
+      await chrome.tabs.update(existing.id, { url: config.url, active: false }).catch(() => undefined);
+      await waitForTabComplete(existing.id, 18000).catch(() => undefined);
+    }
+    return await chrome.tabs.get(existing.id).catch(() => existing);
+  }
+  const createOptions = { url: config.url, active: false };
+  const sourceTab = sourceTabId ? await chrome.tabs.get(sourceTabId).catch(() => null) : null;
+  if (sourceTab?.windowId != null) createOptions.windowId = sourceTab.windowId;
+  if (Number.isInteger(sourceTab?.index)) createOptions.index = sourceTab.index + 1;
+  const created = await chrome.tabs.create(createOptions);
+  await waitForTabComplete(created.id, 18000).catch(() => undefined);
+  return created;
+}
+
+function selectBestBridgeTab(tabs, config) {
+  const usable = (Array.isArray(tabs) ? tabs : []).filter((tab) => tab.id && !tab.discarded);
+  return usable.find((tab) => config.requiredPattern?.test(String(tab.url || ''))) || usable[0] || null;
+}
+
+function needsBridgeNavigation(tab, config) {
+  const url = String(tab?.url || '');
+  if (!url || /^chrome:|^edge:|^about:/i.test(url)) return false;
+  return config.requiredPattern && !config.requiredPattern.test(url);
+}
+
+async function restoreSourceTab(sourceTabId) {
+  if (!sourceTabId) return;
+  const tab = await chrome.tabs.get(sourceTabId).catch(() => null);
+  if (!tab?.id) return;
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
+  if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+}
+
+async function sendBridgeRequest(tabId, message, config, sourceTabId = null) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await injectBridgeScript(tabId);
+      const response = await withTimeout(chrome.tabs.sendMessage(tabId, message), 90000, `${config.name} timed out.`);
+      if (response) return response;
+      throw new Error(`${config.name} returned no response.`);
+    } catch (error) {
+      lastError = error;
+      const messageText = String(error?.message || error || '');
+      const closed = /message channel closed|receiving end does not exist|could not establish connection|extension context invalidated/i.test(messageText);
+      if (!closed && attempt >= 1) break;
+      await waitForTabComplete(tabId, 12000).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 700 + attempt * 500));
+    }
+  }
+  throw new Error(`${config.name} bridge did not return a stable response. ${cleanBridgeError(lastError)}`.trim());
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), timeoutMs))
+  ]);
+}
+
+function cleanBridgeError(error) {
+  const text = String(error?.message || error || '').trim();
+  if (/A listener indicated an asynchronous response by returning true, but the message channel closed/i.test(text)) {
+    return 'the translation page reloaded before returning a result; retry after the page is fully loaded.';
+  }
+  return text || 'unknown error';
+}
+
+function waitForTabComplete(tabId, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Translation page did not finish loading.')); }, timeoutMs);
+    const cleanup = () => { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); };
+    const listener = (id, info) => {
+      if (id === tabId && info.status === 'complete') { cleanup(); resolve(true); }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === 'complete') { cleanup(); resolve(true); }
+    }).catch(() => undefined);
+  });
+}
+
+async function injectBridgeScript(tabId) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['bridge.js'] });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  throw new Error(`Unable to inject bridge script: ${String(lastError?.message || lastError || 'unknown error')}`);
 }
 
 
