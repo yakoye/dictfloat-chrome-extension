@@ -293,3 +293,24 @@ input[type="checkbox"] { accent-color:var(--df-accent) !important; }
   .provider-row { background:#111a28; border-color:#33445e; }
   .provider-row small { color:#aab7ca; }
 }
+
+/* v0.6.6 translation provider configs */
+.translation-provider-details { border:1px solid #e4e9f1; border-radius:9px; background:#fbfcff; overflow:hidden; }
+.translation-provider-details > summary { list-style:none; cursor:pointer; }
+.translation-provider-details > summary::-webkit-details-marker { display:none; }
+.translation-provider-details > summary .provider-row { border:0; border-radius:0; background:transparent; margin:0; }
+.translation-provider-details > summary::before { content:'▸'; float:left; margin:13px 0 0 9px; color:#7b899c; font-size:11px; }
+.translation-provider-details[open] > summary::before { content:'▾'; }
+.translation-provider-details > summary .provider-row { padding-left:28px; }
+.translation-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:0 10px 11px 28px; border-top:1px solid #e9eef5; }
+.translation-config-grid .field { margin-top:10px; }
+.translation-config-grid .full { grid-column:1 / -1; }
+.ai-provider-item.collapsed .ai-provider-body { display:none; }
+.ai-provider-item.collapsed { padding-bottom:12px; }
+.ai-provider-controls [data-ai-action="toggle-details"] { min-width:28px; font-weight:800; }
+@media (max-width:700px) { .translation-config-grid { grid-template-columns:1fr; } .translation-config-grid .full { grid-column:auto; } }
+@media (prefers-color-scheme: dark) {
+  .translation-provider-details { background:#111a28; border-color:#33445e; }
+  .translation-provider-details > summary::before { color:#aab7ca; }
+  .translation-config-grid { border-top-color:#33445e; }
+}

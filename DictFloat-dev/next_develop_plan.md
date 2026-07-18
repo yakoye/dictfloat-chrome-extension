@@ -1,6 +1,331 @@
-# DictFloat v0.6.4 开发日志与下一版规划
+# DictFloat 开发日志与下一版规划
 
-## 本次用户命令
+> 维护规则：以后每次整理 `next_develop_plan.md` 时，**最新版永远放在最前面**，旧版本按时间倒序依次放在后面。
+>
+> 每次开发固定输出：
+>
+> ```text
+> DictFloat-vxx.zip
+> DictFloat-vxx-store-upload.zip
+> ```
+>
+> 本地开发包可以包含 `manifest.key` 和 `next_develop_plan.md`；Chrome Web Store 上传包必须移除 `manifest.key`，并保持包内容干净。
+
+---
+
+## DictFloat v0.6.6
+
+### 本次讨论定稿
+
+本版继续围绕句子翻译与 AI 精析拆分：
+
+1. `Sentence translation` 只负责快速中文翻译，不暴露 Prompt 分类。
+2. `AI Providers` 继续负责英语精析、语法、生词、技术英文解析等深度任务。
+3. 新增的微软、混元、硅基流动、智谱 GLM、babel-lite 都先放入 `Sentence translation`。
+4. Microsoft Translator 作为专门翻译 API 源处理。
+5. Hunyuan / SiliconFlow / Zhipu GLM / babel-lite 作为 OpenAI-compatible 翻译源处理，内部固定“只翻译”提示词，设置页不显示 Prompt。
+6. AI Provider 大块默认折叠，避免多个 Provider 时设置页过长。
+7. 默认 DeepSeek 英语精析 Prompt 调整为更短、更适合 DictFloat 小窗口的四栏目输出。
+
+### v0.6.6 已实现内容
+
+#### 1. Sentence translation 新增翻译源
+
+翻译源顺序调整为：
+
+```text
+1. Chrome Built-in Translator
+2. Microsoft Translator
+3. Hunyuan Translation
+4. SiliconFlow Translation
+5. Zhipu GLM Translation
+6. babel-lite
+7. Youdao Web Bridge
+8. Baidu Web Bridge
+9. Doubao Web Bridge
+```
+
+#### 2. Microsoft Translator 专门适配
+
+新增 Microsoft Translator 配置：
+
+- API Key
+- Region
+- Endpoint
+
+默认 Endpoint：
+
+```text
+https://api.cognitive.microsofttranslator.com
+```
+
+调用 Microsoft Translator v3 风格接口：
+
+```text
+/translate?api-version=3.0&from=en&to=zh-Hans
+```
+
+如果后续需要自动识别源语言，可以把 from 改成 auto 或空值。
+
+#### 3. OpenAI-compatible Translation Providers
+
+新增以下可配置翻译源：
+
+- Hunyuan Translation
+- SiliconFlow Translation
+- Zhipu GLM Translation
+- babel-lite
+
+每个源提供：
+
+- API URL / Base URL
+- API Key
+- Model
+
+内部固定翻译指令：
+
+```text
+Translate the user text into Simplified Chinese.
+Only return the Chinese translation.
+Do not explain.
+Do not add notes.
+```
+
+这些源不显示 System Prompt / User Prompt Template，避免和 AI Providers 混淆。
+
+#### 4. API Key 单独存储
+
+新增句子翻译 API Key 存储：
+
+```text
+dictFloatTranslationSecrets
+```
+
+普通设置仍保存在：
+
+```text
+dictFloatSettings.sentenceTranslationConfigs
+```
+
+普通 backup / recovery 不包含 `dictFloatTranslationSecrets`，避免把用户密钥导出。
+
+#### 5. AI Providers 默认折叠
+
+AI Provider 卡片改为：
+
+```text
+▸ 1. DeepSeek 英语精析    model · api url
+```
+
+默认折叠，点击 `▸` 展开。新增 / 复制 Provider 时自动展开对应卡片；Test API 失败时也会展开对应卡片，方便直接修改配置。
+
+#### 6. 默认 DeepSeek 英语精析 Prompt 调整
+
+默认“英语全能解析 · 简洁版”改为四栏目输出：
+
+```text
+【中文句式翻译】
+【中文意思翻译】
+【生词详解】
+【语法结构解析】
+```
+
+调整点：
+
+- 去掉【规整后原句】输出。
+- 【生词详解】放到【语法结构解析】前面。
+- 语法结构解析要求重要句子成分用括号附带中文直译。
+- 保留“禁止开场白 / 禁止总结 / 禁止第一步第二步”等硬约束。
+
+#### 7. 版本与打包
+
+- manifest version 更新为 `0.6.6`。
+- 本地开发包输出为 `DictFloat-v0.6.6.zip`。
+- Chrome Web Store 上传包输出为 `DictFloat-v0.6.6-store-upload.zip`。
+- Store 上传包移除 `manifest.key`，并不包含 `next_develop_plan.md`。
+
+### v0.6.6 检查记录
+
+执行检查：
+
+```text
+node --check options.js
+node --check content.js
+node --check background.js
+python3 -m json.tool manifest.json
+```
+
+检查目标：
+
+- Options 页脚本语法正确。
+- Content script 语法正确。
+- Background service worker 语法正确。
+- manifest.json 语法正确。
+- ZIP 根目录直接包含 manifest.json。
+- Store 上传包不包含 manifest.key。
+
+### 下一版 v0.6.7 规划
+
+建议下一版继续做体验增强，不再一次性加太多源：
+
+1. Sentence translation 的 API 源增加单独 Test API 按钮。
+2. 翻译源配置块也支持默认折叠 / 展开状态记忆。
+3. Microsoft Translator 支持源语言 auto / en 切换。
+4. OpenAI-compatible Translation Providers 支持自定义 target language。
+5. 结果区显示耗时、模型名、endpoint 简写。
+6. 支持“只启用一个最快翻译源”和“并发翻译源先返回先显示”的模式。
+7. AI Providers 折叠状态可记忆到设置中。
+8. 继续优化 Chrome Web Store 隐私说明，明确句子翻译 API 和 AI Provider 的发送边界。
+
+---
+## DictFloat v0.6.5
+
+### 本次讨论定稿
+
+用户确认继续开发 v0.6.5，并补充 AI Provider 的设计原则：
+
+1. AI 提示词可以做成默认值，但必须允许用户修改。
+2. 用户修改提示词后，后续一直使用用户修改后的内容，不能被默认提示词覆盖。
+3. API URL、Model、Provider Name、Temperature、Max Text Length、Max Output Tokens 等字段都可以预先填入默认值。
+4. 所有预填内容都必须允许用户修改。
+5. AI Provider 需要支持多个，逻辑类似词典源：可以启用/禁用，可以选择使用哪一个，每个 Provider 可以有不同提示词。
+
+### v0.6.5 已实现内容
+
+#### 1. Custom AI Provider 升级为 AI Providers
+
+原 v0.6.4 只支持一个 Custom AI Provider。v0.6.5 改为多个 AI Provider 列表：
+
+- 支持新增 AI Provider。
+- 支持新增 DeepSeek 预设。
+- 支持删除 Provider。
+- 支持复制 Provider。
+- 支持上移 / 下移排序。
+- 每个 Provider 都有独立 Enable 开关。
+- 结果区按普通翻译源 + AI Provider 顺序显示。
+
+#### 2. 每个 AI Provider 独立配置
+
+每个 Provider 支持独立设置：
+
+- Provider name
+- Model
+- API URL / Base URL
+- API Key
+- Prompt preset
+- System Prompt
+- User Prompt Template
+- Temperature
+- Max text length
+- Max output tokens
+- Test API
+
+#### 3. 默认提示词预填且可修改
+
+内置默认 Prompt Preset：
+
+- 英语全能解析 · 简洁版
+- 只翻译 · 简洁版
+- 技术英文 · PCIe/芯片版
+- 自定义
+
+默认 DeepSeek Provider 使用“英语全能解析 · 简洁版”。
+
+关键规则：
+
+- 默认提示词只作为初始化内容。
+- 用户修改后会保存到 `dictFloatSettings.aiProviders`。
+- 后续调用一直使用用户保存后的版本。
+- 只有用户主动选择 preset 或点击 Reset prompt to preset，才会重新覆盖当前 Provider 的提示词。
+
+#### 4. API Key 存储调整
+
+v0.6.4：
+
+```text
+ dictFloatCustomAiSecret.apiKey
+```
+
+v0.6.5：
+
+```text
+ dictFloatAiSecrets[providerId].apiKey
+```
+
+兼容旧版本迁移：
+
+- 如果用户已有 v0.6.4 的单 Provider 配置，会迁移为 `ai_legacy_custom`。
+- 如果旧版 API Key 存在，会映射到迁移后的 Provider。
+- 新版普通备份仍不导出 API Key。
+
+#### 5. 测试功能升级
+
+每个 AI Provider 卡片都有自己的 Test API。
+
+默认测试文本：
+
+```text
+You've hit your usage limit.
+```
+
+这样可以直接验证默认英语解析提示词是否按固定栏目输出。
+
+#### 6. 内容脚本调用逻辑
+
+选中两个以上英文单词后，点击小圆点或按 Enter：
+
+1. 按设置调用 Chrome Built-in / Youdao / Baidu / Doubao。
+2. 再按 AI Provider 列表顺序调用所有已启用的 AI Provider。
+3. 每个 AI Provider 在结果区独立显示为一张卡片。
+4. 每张卡片支持 Copy / Retry。
+
+#### 7. 版本与打包
+
+- manifest version 更新为 0.6.5。
+- 本地开发包输出为 `DictFloat-v0.6.5.zip`。
+- Chrome Web Store 上传包输出为 `DictFloat-v0.6.5-store-upload.zip`。
+- Store 上传包移除 `manifest.key`，并不包含 `next_develop_plan.md`。
+
+### v0.6.5 检查记录
+
+执行检查：
+
+```text
+node --check options.js
+node --check content.js
+node --check background.js
+python3 -m json.tool manifest.json
+```
+
+检查目标：
+
+- Options 页脚本语法正确。
+- Content script 语法正确。
+- Background service worker 语法正确。
+- manifest.json 语法正确。
+- ZIP 根目录直接包含 manifest.json。
+- Store 上传包不包含 manifest.key。
+
+### 下一版 v0.6.6 规划
+
+建议下一版继续优化 AI Provider 体验：
+
+1. AI Provider 结果并发执行：AI 源先返回先显示，网页桥接仍保持顺序，避免网页桥接互相干扰。
+2. Provider 列表支持拖拽排序，而不只是上移 / 下移。
+3. 支持导入 / 导出 AI Provider 配置，但默认继续排除 API Key。
+4. 支持每个 Provider 选择触发场景：
+   - 只处理句子 / 段落
+   - 也处理单词
+   - 仅手动 Retry 时调用
+5. 支持每个 Provider 设置输出显示高度和折叠状态。
+6. AI 结果卡片显示耗时、模型名、endpoint 简写。
+7. 增加“恢复默认提示词库”按钮，不影响用户现有 Provider，除非用户明确覆盖。
+
+---
+
+## DictFloat v0.6.4
+
+### 本次用户命令
 
 继续开发 DictFloat v0.6.4，以 v0.6.3 作为参考包；以后每一次开发都输出：
 
@@ -11,9 +336,9 @@ DictFloat-vxx-store-upload.zip
 
 并把本地讨论、开发日志、下一版规划统一维护在 `next_develop_plan.md`。
 
-## v0.6.4 已实现内容
+### v0.6.4 已实现内容
 
-### 1. 小圆点定位重做
+#### 1. 小圆点定位重做
 
 定位规则从“只看选择方向”升级为：
 
@@ -43,7 +368,7 @@ top  = rect.bottom + gap
 - 页面边界放不下时，再自动尝试同侧贴边、上方、对侧等 fallback。
 - 圆点整体尽量在选区外，不再把短单词盖住。
 
-### 2. Settings 增加 Custom AI Provider
+#### 2. Settings 增加 Custom AI Provider
 
 新增独立设置区：
 
@@ -99,7 +424,7 @@ https://api.openai.com/v1/chat/completions
 => 原样使用
 ```
 
-### 3. 句子翻译来源顺序
+#### 3. 句子翻译来源顺序
 
 两个以上英文单词触发句子翻译 / 解析。启用后来源顺序为：
 
@@ -113,7 +438,7 @@ https://api.openai.com/v1/chat/completions
 
 结果区使用原有 source card 样式，Custom AI 的卡片标题使用用户填写的 Provider Name。
 
-### 4. API Key 安全策略
+#### 4. API Key 安全策略
 
 本版将 API Key 单独保存：
 
@@ -134,7 +459,7 @@ dictFloatSettings.customAiProvider
 - API Key 不进入普通 backup / recovery 导出列表。
 - `next_develop_plan.md`、zip 包日志、普通备份中不包含用户密钥。
 
-### 5. 代码改动文件
+#### 5. 代码改动文件
 
 ```text
 manifest.json
@@ -146,7 +471,7 @@ options.js
 next_develop_plan.md
 ```
 
-### 6. 已执行检查
+#### 6. 已执行检查
 
 ```bash
 node --check content.js
@@ -157,7 +482,7 @@ python3 -m json.tool manifest.json
 
 检查通过。
 
-## v0.6.4 打包规则
+### v0.6.4 打包规则
 
 本次输出两个包：
 
@@ -180,29 +505,29 @@ DictFloat-v0.6.4-store-upload.zip
 - 不放开发日志，保持商店包干净
 ```
 
-## v0.6.5 下一版规划
+### v0.6.5 下一版规划
 
 建议下一版先做这几件：
 
-### 1. Custom AI Provider 体验增强
+#### 1. Custom AI Provider 体验增强
 
 - 增加一键示例填充：DeepSeek / OpenAI / Doubao / OpenRouter。
 - 增加“只翻译 / 技术解析 / 逐句拆解 / 语法分析” Prompt Preset。
 - Test API 增加更清楚的错误提示：鉴权失败、URL 错误、模型名错误、CORS/网络失败。
 
-### 2. 翻译结果展示增强
+#### 2. 翻译结果展示增强
 
 - 每个 Provider 卡片增加 Retry。
 - Custom AI 卡片可以显示耗时。
 - 长结果增加折叠 / 展开。
 - 支持一键复制所有 Provider 结果。
 
-### 3. 隐私与商店文案更新
+#### 3. 隐私与商店文案更新
 
 - 更新 Chrome Web Store 隐私说明：启用 Custom AI 后，只在用户手动触发时发送选中文本到用户配置的 endpoint。
 - 明确说明 DictFloat 不内置第三方 API Key，不收集用户文本，不上传本地词库。
 
-### 4. 圆点定位继续细调
+#### 4. 圆点定位继续细调
 
 - 在 PDF 阅读器、沉浸式阅读器、ChatGPT 页面、GitHub 文档页上分别验证。
 - 如果某些网页 selection rect 异常，增加 debug 标记开关。
@@ -210,13 +535,13 @@ DictFloat-v0.6.4-store-upload.zip
 
 ---
 
-# DictFloat v0.6.4
+### v0.6.4 本地讨论记录
 
 命令：再调整圆点位置。向右选：圆点放在选区右下角外侧。如图1，红色方框位置。 向左选：圆点放在选区左下角外侧，如图2，红色方框位置。 怎么描述呢，应该就是如图3，理想位置。 第二个功能实现，api调用，使用deepseek或者豆包，或者chatgpt，我应该只需要填写，如图4中的内容即可。我都可以自定义。 先讨论清楚。
 
 同意，先把两个事情分开定清楚：**小圆点定位规则** 和 **API 自定义调用规则**。
 
-## 1. 小圆点定位规则重新定义
+#### 1. 小圆点定位规则重新定义
 
 你的图 1、图 2、图 3 表达得很清楚。现在的问题是之前还是有点把“鼠标释放点 / 圆心 / 选区外框”混在一起了。
 
@@ -234,7 +559,7 @@ DictFloat-v0.6.4-store-upload.zip
 
 也就是说，假设圆点直径是 `16px`，间距是 `4px`：
 
-### 向右选
+##### 向右选
 
 ```text
 选区矩形右下角
@@ -251,7 +576,7 @@ top  = targetRect.bottom + gap
 
 圆点的**左边缘**在选区右边界外侧，不是圆心在右下角。
 
-### 向左选
+##### 向左选
 
 ```text
 ○    [ selected text blue area ]
@@ -268,7 +593,7 @@ top  = targetRect.bottom + gap
 
 圆点的**右边缘**在选区左边界外侧，不是圆心在左下角。
 
-### 多行选区
+##### 多行选区
 
 不能再用整个大包围框 `getBoundingClientRect()`，因为它会把多行文字合成一个大矩形，导致向右选时图标跑到很远。
 
@@ -288,7 +613,7 @@ const rects = Array.from(range.getClientRects())
 
 这样你选一整段英文时，图标会落在最后一行文字末尾的右下角；向左选时，会落在第一行文字开头的左下角。
 
-### 边界处理
+##### 边界处理
 
 只有在页面边缘放不下时才换位置：
 
@@ -309,7 +634,7 @@ const rects = Array.from(range.getClientRects())
 
 ------
 
-## 2. API 调用功能应该怎么做
+#### 2. API 调用功能应该怎么做
 
 你图 4 这种配置方式是对的。你本质上需要的是一个 **OpenAI-Compatible 自定义 AI Provider**。
 
@@ -334,7 +659,7 @@ DeepSeek 官方文档说明它的 API 格式兼容 OpenAI/Anthropic，所以用 
 
 ------
 
-## 3. Settings 里建议新增这个区域
+#### 3. Settings 里建议新增这个区域
 
 放在现在的 `Sentence translation` 后面，叫：
 
@@ -344,7 +669,7 @@ Custom AI Provider
 
 字段如下。
 
-### 基础开关
+##### 基础开关
 
 ```text
 Enable Custom AI: On / Off
@@ -352,7 +677,7 @@ Enable Custom AI: On / Off
 
 开启后，选中两个以上英文单词时，DictFloat 除了网页桥接翻译，也会调用这个 AI Provider。
 
-### Provider Name
+##### Provider Name
 
 ```text
 Custom AI
@@ -371,7 +696,7 @@ Qwen
 
 显示结果时就用这个名字作为来源卡片标题。
 
-### API Key
+##### API Key
 
 ```text
 sk-xxxx
@@ -385,7 +710,7 @@ Show password
 
 API Key 只保存在 `chrome.storage.local`，不写入页面 DOM，不参与导出，除非以后专门做“包含密钥的备份”选项。
 
-### API URL
+##### API URL
 
 这里要兼容两种输入。
 
@@ -419,7 +744,7 @@ if url.endsWith('/chat/completions') {
 }
 ```
 
-### Model
+##### Model
 
 ```text
 deepseek-chat
@@ -429,7 +754,7 @@ doubao-xxx
 
 这里直接输入，先不做复杂下拉。因为不同服务商模型名变化太快，下拉反而麻烦。
 
-### Temperature
+##### Temperature
 
 默认：
 
@@ -439,7 +764,7 @@ doubao-xxx
 
 英语解析建议低温度，稳定、少废话。
 
-### Max Text Length
+##### Max Text Length
 
 默认：
 
@@ -449,7 +774,7 @@ doubao-xxx
 
 和你现在长段落选中需求一致。
 
-### Max Output Tokens
+##### Max Output Tokens
 
 建议加一个：
 
@@ -461,7 +786,7 @@ doubao-xxx
 
 ------
 
-## 4. Prompt 设计
+#### 4. Prompt 设计
 
 这里我建议分两个框：
 
@@ -470,7 +795,7 @@ System Prompt
 User Prompt Template
 ```
 
-### System Prompt
+##### System Prompt
 
 放你的“角色设定”。
 
@@ -480,7 +805,7 @@ User Prompt Template
 你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。
 ```
 
-### User Prompt Template
+##### User Prompt Template
 
 用变量：
 
@@ -494,7 +819,7 @@ User Prompt Template
 
 ------
 
-## 5. 输出方式
+#### 5. 输出方式
 
 现在选中多个词后，结果区应该像词典来源一样列出多个 source card。
 
@@ -529,7 +854,7 @@ Copy   Retry
 
 ------
 
-## 6. 调用逻辑
+#### 6. 调用逻辑
 
 你之前说“两个以上单词就调用 AI”，我建议定为：
 
@@ -551,7 +876,7 @@ Copy   Retry
 
 ------
 
-## 7. Provider 顺序
+#### 7. Provider 顺序
 
 Settings 里可以勾选：
 
@@ -577,9 +902,9 @@ Settings 里可以勾选：
 
 ------
 
-## 8. DeepSeek / OpenAI / 豆包填写示例
+#### 8. DeepSeek / OpenAI / 豆包填写示例
 
-### DeepSeek
+##### DeepSeek
 
 ```text
 Provider Name:
@@ -595,7 +920,7 @@ API Key:
 你的 DeepSeek API Key
 ```
 
-### OpenAI / ChatGPT API
+##### OpenAI / ChatGPT API
 
 ```text
 Provider Name:
@@ -611,7 +936,7 @@ API Key:
 你的 OpenAI API Key
 ```
 
-### 豆包 / 火山方舟
+##### 豆包 / 火山方舟
 
 ```text
 Provider Name:
@@ -631,7 +956,7 @@ API Key:
 
 ------
 
-## 9. 隐私和审核说明要同步改
+#### 9. 隐私和审核说明要同步改
 
 加上 Custom AI 后，Privacy 需要补一句：
 
@@ -649,7 +974,7 @@ When Custom AI Provider is enabled and the user manually triggers sentence analy
 
 ------
 
-## 定稿建议
+#### 定稿建议
 
 下一版我建议做成 **v0.6.4**：
 
@@ -681,9 +1006,7 @@ When Custom AI Provider is enabled and the user manually triggers sentence analy
 这个方案比较稳：**网页桥接继续保留，API 能力独立增强，所有配置都在 Settings，不破坏现在 DictFloat 的查词主线。**
 
 
-
 > 命令：不再参考鼠标释放点做主定位，我觉得鼠标释放点作为辅助定位。比如，向左选，你要是，显示在右边，我需要再把鼠标拉过去。此时检查鼠标位置大概在左上角。然后定位矩形位置在左上角，然后就操作。你觉得如何？
-
 
 
 我觉得你这个判断是对的：**鼠标释放点不能完全不用，它应该作为“方向与就近侧判断”的辅助依据。**
@@ -697,9 +1020,9 @@ When Custom AI Provider is enabled and the user manually triggers sentence analy
 
 也就是说，小圆点不应该直接跟着鼠标点跑，否则长段落会乱；但也不能完全不看鼠标点，否则向左选完后图标跑到右边，确实很反人类。
 
-## 最合理的定位规则
+#### 最合理的定位规则
 
-### 1. 先拿到真实选区矩形
+##### 1. 先拿到真实选区矩形
 
 不是用整个大包围框，而是用：
 
@@ -717,7 +1040,7 @@ range.getClientRects()
 第三行 rect
 ```
 
-### 2. 判断鼠标释放点靠近哪一行、哪一侧
+##### 2. 判断鼠标释放点靠近哪一行、哪一侧
 
 鼠标释放点只用来判断：
 
@@ -730,7 +1053,7 @@ range.getClientRects()
 
 然后选择一个最接近鼠标释放点的 rect。
 
-### 3. 图标永远放在选区外侧
+##### 3. 图标永远放在选区外侧
 
 这是硬规则：
 
@@ -777,7 +1100,7 @@ top  = rect.bottom + gap
 
 这样不会要求你再把鼠标拉到右边。
 
-## 最终规则我建议这样定
+#### 最终规则我建议这样定
 
 ```text
 1. 取 selection 的所有 client rect。
@@ -792,7 +1115,7 @@ top  = rect.bottom + gap
 
 这样比单纯“向左/向右选”更稳，因为有些浏览器或网页不容易准确判断 selection direction，但鼠标释放点非常直观。
 
-## 视觉结果
+#### 视觉结果
 
 向右选：
 
@@ -823,23 +1146,18 @@ word ○
 
 我建议下一版就按这个“**选区矩形为边界，鼠标释放点为就近侧辅助**”来改。
 
+---
 
-
-
-
-
-
-# DictFloat v0.6.3
+## DictFloat v0.6.3
 
 > 命令：桥接过程中会主动把焦点拉回原网页，避免你被切到有道页面。这个功能目前，影响其他网页，其他网页操作一会儿，自动跳转到刚刚滑词翻译的网页上了。这样肯定不行。 另外，需要检查小图标，有时候单词选中比较短，把单词盖住了，就不能做到选中的词，肯定是矩形。矩形右下角或者左下角是小图标（圆形）的边所在的地方，而不是圆心等所在的地方。
 
 
-
 已处理成 **DictFloat v0.6.3**。
 
-[下载 DictFloat v0.6.3 本地开发包](sandbox:/mnt/data/DictFloat-v0.6.3.zip)
+`DictFloat-v0.6.3.zip`
 
-[下载 DictFloat v0.6.3 Chrome Store 上传包](sandbox:/mnt/data/DictFloat-v0.6.3-store-upload.zip)
+`DictFloat-v0.6.3-store-upload.zip`
 
 这次改了两处核心问题：
 
@@ -867,149 +1185,4 @@ word ○
 真实有道 / 百度 / 豆包网页桥接仍需要在你的 Chrome 里验证，因为这里不能登录和操作这些网页的真实 DOM 状态。更新后请 Reload 扩展，并刷新测试网页。
 
 
-
-
 ---
-
-# DictFloat v0.6.5
-
-## 本次讨论定稿
-
-用户确认继续开发 v0.6.5，并补充 AI Provider 的设计原则：
-
-1. AI 提示词可以做成默认值，但必须允许用户修改。
-2. 用户修改提示词后，后续一直使用用户修改后的内容，不能被默认提示词覆盖。
-3. API URL、Model、Provider Name、Temperature、Max Text Length、Max Output Tokens 等字段都可以预先填入默认值。
-4. 所有预填内容都必须允许用户修改。
-5. AI Provider 需要支持多个，逻辑类似词典源：可以启用/禁用，可以选择使用哪一个，每个 Provider 可以有不同提示词。
-
-## v0.6.5 已实现内容
-
-### 1. Custom AI Provider 升级为 AI Providers
-
-原 v0.6.4 只支持一个 Custom AI Provider。v0.6.5 改为多个 AI Provider 列表：
-
-- 支持新增 AI Provider。
-- 支持新增 DeepSeek 预设。
-- 支持删除 Provider。
-- 支持复制 Provider。
-- 支持上移 / 下移排序。
-- 每个 Provider 都有独立 Enable 开关。
-- 结果区按普通翻译源 + AI Provider 顺序显示。
-
-### 2. 每个 AI Provider 独立配置
-
-每个 Provider 支持独立设置：
-
-- Provider name
-- Model
-- API URL / Base URL
-- API Key
-- Prompt preset
-- System Prompt
-- User Prompt Template
-- Temperature
-- Max text length
-- Max output tokens
-- Test API
-
-### 3. 默认提示词预填且可修改
-
-内置默认 Prompt Preset：
-
-- 英语全能解析 · 简洁版
-- 只翻译 · 简洁版
-- 技术英文 · PCIe/芯片版
-- 自定义
-
-默认 DeepSeek Provider 使用“英语全能解析 · 简洁版”。
-
-关键规则：
-
-- 默认提示词只作为初始化内容。
-- 用户修改后会保存到 `dictFloatSettings.aiProviders`。
-- 后续调用一直使用用户保存后的版本。
-- 只有用户主动选择 preset 或点击 Reset prompt to preset，才会重新覆盖当前 Provider 的提示词。
-
-### 4. API Key 存储调整
-
-v0.6.4：
-
-```text
- dictFloatCustomAiSecret.apiKey
-```
-
-v0.6.5：
-
-```text
- dictFloatAiSecrets[providerId].apiKey
-```
-
-兼容旧版本迁移：
-
-- 如果用户已有 v0.6.4 的单 Provider 配置，会迁移为 `ai_legacy_custom`。
-- 如果旧版 API Key 存在，会映射到迁移后的 Provider。
-- 新版普通备份仍不导出 API Key。
-
-### 5. 测试功能升级
-
-每个 AI Provider 卡片都有自己的 Test API。
-
-默认测试文本：
-
-```text
-You've hit your usage limit.
-```
-
-这样可以直接验证默认英语解析提示词是否按固定栏目输出。
-
-### 6. 内容脚本调用逻辑
-
-选中两个以上英文单词后，点击小圆点或按 Enter：
-
-1. 按设置调用 Chrome Built-in / Youdao / Baidu / Doubao。
-2. 再按 AI Provider 列表顺序调用所有已启用的 AI Provider。
-3. 每个 AI Provider 在结果区独立显示为一张卡片。
-4. 每张卡片支持 Copy / Retry。
-
-### 7. 版本与打包
-
-- manifest version 更新为 0.6.5。
-- 本地开发包输出为 `DictFloat-v0.6.5.zip`。
-- Chrome Web Store 上传包输出为 `DictFloat-v0.6.5-store-upload.zip`。
-- Store 上传包移除 `manifest.key`，并不包含 `next_develop_plan.md`。
-
-## v0.6.5 检查记录
-
-执行检查：
-
-```text
-node --check options.js
-node --check content.js
-node --check background.js
-python3 -m json.tool manifest.json
-```
-
-检查目标：
-
-- Options 页脚本语法正确。
-- Content script 语法正确。
-- Background service worker 语法正确。
-- manifest.json 语法正确。
-- ZIP 根目录直接包含 manifest.json。
-- Store 上传包不包含 manifest.key。
-
-## 下一版 v0.6.6 规划
-
-建议下一版继续优化 AI Provider 体验：
-
-1. AI Provider 结果并发执行：AI 源先返回先显示，网页桥接仍保持顺序，避免网页桥接互相干扰。
-2. Provider 列表支持拖拽排序，而不只是上移 / 下移。
-3. 支持导入 / 导出 AI Provider 配置，但默认继续排除 API Key。
-4. 支持每个 Provider 选择触发场景：
-   - 只处理句子 / 段落
-   - 也处理单词
-   - 仅手动 Retry 时调用
-5. 支持每个 Provider 设置输出显示高度和折叠状态。
-6. AI 结果卡片显示耗时、模型名、endpoint 简写。
-7. 增加“恢复默认提示词库”按钮，不影响用户现有 Provider，除非用户明确覆盖。

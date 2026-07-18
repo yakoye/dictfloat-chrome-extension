@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.4'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.6'; }
   })();
   // Generated at package time from content.css. Keeping the stylesheet inside
   // the content script avoids a chrome-extension:// fetch from pages with
@@ -37,7 +37,7 @@
     apiUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     promptPreset: 'english_parse_quick',
-    systemPrompt: '你是专业资深英语解析助手。只按固定栏目输出中文解析，禁止开场白和总结。',
+    systemPrompt: '你是专业资深英语解析助手。只按【中文句式翻译】【中文意思翻译】【生词详解】【语法结构解析】四个栏目输出中文解析；禁止输出规整后原句、开场白和总结。生词详解放在语法结构解析前面，重要句子成分用括号附带中文直译。',
     userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}',
     temperature: 0.1,
     maxTextLength: 6000,
@@ -51,7 +51,8 @@
     theme: 'system',
     onlineLookup: true,
     accent: 'green',
-    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
+    translationProviders: { chrome: true, microsoft: false, hunyuan: false, siliconflow: false, zhipu: false, babellite: false, youdao: false, baidu: false, doubao: false, customAi: false },
+    sentenceTranslationConfigs: {},
     customAiProvider: { ...DEFAULT_CUSTOM_AI_PROVIDER },
     aiProviders: defaultAiProviders()
   };
@@ -927,6 +928,11 @@
     const providers = normalizeTranslationProviders(state.settings.translationProviders);
     const webProviders = [
       providers.chrome ? 'chrome' : '',
+      providers.microsoft ? 'microsoft' : '',
+      providers.hunyuan ? 'hunyuan' : '',
+      providers.siliconflow ? 'siliconflow' : '',
+      providers.zhipu ? 'zhipu' : '',
+      providers.babellite ? 'babellite' : '',
       providers.youdao ? 'youdao' : '',
       providers.baidu ? 'baidu' : '',
       providers.doubao ? 'doubao' : ''
@@ -947,7 +953,7 @@
       const provider = aiProviderByRuntimeKey(key);
       return String(provider?.providerName || 'Custom AI').trim() || 'Custom AI';
     }
-    return ({ chrome: 'Chrome Built-in', youdao: 'Youdao Bridge', baidu: 'Baidu Bridge', doubao: 'Doubao Bridge' })[key] || key;
+    return ({ chrome: 'Chrome Built-in', microsoft: 'Microsoft Translator', hunyuan: 'Hunyuan Translation', siliconflow: 'SiliconFlow Translation', zhipu: 'Zhipu GLM Translation', babellite: 'babel-lite', youdao: 'Youdao Bridge', baidu: 'Baidu Bridge', doubao: 'Doubao Bridge' })[key] || key;
   }
 
   function appendSentenceTranslationSection(box) {
@@ -1055,7 +1061,9 @@
       try {
         const data = provider === 'chrome'
           ? await translateWithChromeBuiltIn(text)
-          : (String(provider).startsWith('ai:') ? await translateWithCustomAI(text, String(provider).slice(3)) : await translateWithWebBridge(text, [provider]));
+          : (String(provider).startsWith('ai:')
+              ? await translateWithCustomAI(text, String(provider).slice(3))
+              : (isSentenceApiProvider(provider) ? await translateWithSentenceApi(text, provider) : await translateWithWebBridge(text, [provider])));
         if (state.query.trim() !== text) return;
         update({ status: 'done', data, error: '' });
       } catch (error) {
@@ -1070,6 +1078,17 @@
     state.translation = { ...state.translation, status: ok ? 'done' : 'error', error: errors.join(' | ') };
     renderContentOnly();
   }
+
+  function isSentenceApiProvider(provider) {
+    return ['microsoft', 'hunyuan', 'siliconflow', 'zhipu', 'babellite'].includes(String(provider || ''));
+  }
+
+  async function translateWithSentenceApi(text, provider) {
+    const response = await safeRuntimeSend({ type: 'DICTFLOAT_SENTENCE_API_TRANSLATE', text, provider });
+    if (!response?.ok) throw new Error(response?.error || `${translationProviderLabel(provider)} translation failed.`);
+    return response.data;
+  }
+
 
   async function translateWithWebBridge(text, providers) {
     const bridgeProviders = providers.filter((item) => item !== 'chrome');
@@ -2672,6 +2691,11 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     const value = input && typeof input === 'object' ? input : {};
     return {
       chrome: value.chrome !== false,
+      microsoft: value.microsoft === true,
+      hunyuan: value.hunyuan === true,
+      siliconflow: value.siliconflow === true,
+      zhipu: value.zhipu === true,
+      babellite: value.babellite === true,
       youdao: value.youdao === true,
       baidu: value.baidu === true,
       doubao: value.doubao === true,
@@ -2719,6 +2743,7 @@ ${scope} :where(hr) { border-color:#34445e !important; }
       ...DEFAULT_SETTINGS,
       ...raw,
       translationProviders: normalizeTranslationProviders(raw.translationProviders || DEFAULT_SETTINGS.translationProviders),
+      sentenceTranslationConfigs: raw.sentenceTranslationConfigs && typeof raw.sentenceTranslationConfigs === 'object' ? raw.sentenceTranslationConfigs : {},
       customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || DEFAULT_SETTINGS.customAiProvider),
       aiProviders
     };

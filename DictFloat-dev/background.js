@@ -54,6 +54,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
+  if (message?.type === 'DICTFLOAT_SENTENCE_API_TRANSLATE') {
+    translateWithSentenceApi(String(message.text || ''), String(message.provider || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
   if (message?.type === 'DICTFLOAT_CUSTOM_AI_TRANSLATE') {
     translateWithCustomAi(String(message.text || ''), String(message.providerId || ''))
       .then((data) => sendResponse({ ok: true, data }))
@@ -147,6 +153,17 @@ async function migrateStorage() {
   });
 }
 
+
+function defaultSentenceTranslationConfigs() {
+  return {
+    microsoft: { endpoint: 'https://api.cognitive.microsofttranslator.com', region: '', from: 'en', to: 'zh-Hans' },
+    hunyuan: { apiUrl: 'https://api.hunyuan.cloud.tencent.com/v1', model: '', maxTextLength: 8000, maxOutputTokens: 1600 },
+    siliconflow: { apiUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', maxTextLength: 8000, maxOutputTokens: 1600 },
+    zhipu: { apiUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', maxTextLength: 8000, maxOutputTokens: 1600 },
+    babellite: { apiUrl: '', model: '', maxTextLength: 8000, maxOutputTokens: 1600 }
+  };
+}
+
 function defaultSettings() {
   return {
     selectionMode: 'bubble',
@@ -155,7 +172,8 @@ function defaultSettings() {
     theme: 'system',
     onlineLookup: true,
     accent: 'green',
-    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
+    translationProviders: { chrome: true, microsoft: false, hunyuan: false, siliconflow: false, zhipu: false, babellite: false, youdao: false, baidu: false, doubao: false, customAi: false },
+    sentenceTranslationConfigs: defaultSentenceTranslationConfigs(),
     customAiProvider: defaultCustomAiProvider(),
     aiProviders: defaultAiProviders()
   };
@@ -169,7 +187,7 @@ function defaultCustomAiProvider() {
     apiUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     promptPreset: 'english_parse_quick',
-    systemPrompt: '你是专业资深英语解析助手。只按固定栏目输出中文解析，禁止开场白和总结。',
+    systemPrompt: '你是专业资深英语解析助手。只按【中文句式翻译】【中文意思翻译】【生词详解】【语法结构解析】四个栏目输出中文解析；禁止输出规整后原句、开场白和总结。生词详解放在语法结构解析前面，重要句子成分用括号附带中文直译。',
     userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}',
     temperature: 0.1,
     maxTextLength: 6000,
@@ -475,6 +493,141 @@ async function injectBridgeScript(tabId) {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Sentence translation API providers
+// ---------------------------------------------------------------------------
+const SENTENCE_API_LABELS = {
+  microsoft: 'Microsoft Translator',
+  hunyuan: 'Hunyuan Translation',
+  siliconflow: 'SiliconFlow Translation',
+  zhipu: 'Zhipu GLM Translation',
+  babellite: 'babel-lite'
+};
+
+async function translateWithSentenceApi(rawText, providerKey) {
+  const text = String(rawText || '').trim().replace(/\s+/g, ' ');
+  const key = String(providerKey || '').toLowerCase();
+  if (!text) throw new Error('No text to translate.');
+  if (!SENTENCE_API_LABELS[key]) throw new Error('Unsupported sentence translation provider.');
+  const data = await chrome.storage.local.get(['dictFloatSettings', 'dictFloatTranslationSecrets']);
+  const settings = normalizeBackgroundSettings(data.dictFloatSettings);
+  const configs = normalizeSentenceTranslationConfigs(settings.sentenceTranslationConfigs);
+  const secrets = normalizeSentenceTranslationSecrets(data.dictFloatTranslationSecrets);
+  if (key === 'microsoft') return translateWithMicrosoftTranslator(text, configs.microsoft, secrets.microsoft?.apiKey || '');
+  return translateWithOpenAiCompatibleTranslation(text, key, configs[key], secrets[key]?.apiKey || '');
+}
+
+async function translateWithMicrosoftTranslator(text, config, apiKey) {
+  const label = SENTENCE_API_LABELS.microsoft;
+  if (!apiKey) throw new Error(`${label} API Key is empty.`);
+  const endpoint = String(config?.endpoint || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(endpoint)) throw new Error(`${label} endpoint must start with http:// or https://`);
+  const to = String(config?.to || 'zh-Hans').trim() || 'zh-Hans';
+  const from = String(config?.from || 'en').trim();
+  const url = new URL(`${endpoint}/translate`);
+  url.searchParams.set('api-version', '3.0');
+  if (from && from.toLowerCase() !== 'auto') url.searchParams.set('from', from);
+  url.searchParams.set('to', to);
+  const headers = {
+    'Content-Type': 'application/json',
+    'Ocp-Apim-Subscription-Key': apiKey
+  };
+  const region = String(config?.region || '').trim();
+  if (region) headers['Ocp-Apim-Subscription-Region'] = region;
+  const response = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify([{ Text: text }]) });
+  const bodyText = await response.text();
+  let body = null;
+  try { body = bodyText ? JSON.parse(bodyText) : null; } catch (_) { body = null; }
+  if (!response.ok) {
+    const detail = body?.error?.message || body?.message || bodyText.slice(0, 240) || response.statusText;
+    throw new Error(`${label} request failed (${response.status}): ${detail}`);
+  }
+  const translated = Array.isArray(body) ? body[0]?.translations?.[0]?.text : '';
+  const clean = String(translated || '').trim();
+  if (!clean) throw new Error(`${label} returned an empty response.`);
+  return { translation: clean, provider: label, sourceText: text };
+}
+
+async function translateWithOpenAiCompatibleTranslation(text, key, config, apiKey) {
+  const label = SENTENCE_API_LABELS[key] || key;
+  if (!apiKey) throw new Error(`${label} API Key is empty.`);
+  const apiUrl = String(config?.apiUrl || '').trim();
+  if (!apiUrl) throw new Error(`${label} API URL is empty.`);
+  const model = String(config?.model || '').trim();
+  if (!model) throw new Error(`${label} model is empty.`);
+  const maxTextLength = clampNumber(Number(config?.maxTextLength), 100, 30000, 8000);
+  if (text.length > maxTextLength) throw new Error(`Selected text is longer than ${label} Max Text Length (${maxTextLength}).`);
+  const endpoint = normalizeCustomAiEndpoint(apiUrl);
+  const messages = [
+    { role: 'system', content: 'You are a translation engine. Translate the user text into Simplified Chinese. Only return the Chinese translation. Do not explain. Do not add notes. Preserve necessary technical terms when appropriate.' },
+    { role: 'user', content: text }
+  ];
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.1,
+      max_tokens: clampNumber(Number(config?.maxOutputTokens), 128, 16000, 1600)
+    })
+  });
+  const bodyText = await response.text();
+  let body = null;
+  try { body = bodyText ? JSON.parse(bodyText) : null; } catch (_) { body = null; }
+  if (!response.ok) {
+    const detail = body?.error?.message || body?.message || bodyText.slice(0, 240) || response.statusText;
+    throw new Error(`${label} request failed (${response.status}): ${detail}`);
+  }
+  const content = extractOpenAiCompatibleContent(body).trim();
+  if (!content) throw new Error(`${label} returned an empty response.`);
+  return { translation: content, provider: label, sourceText: text };
+}
+
+function normalizeSentenceTranslationConfigs(input) {
+  const raw = input && typeof input === 'object' ? input : {};
+  const defaults = defaultSentenceTranslationConfigs();
+  const cleanProvider = (key) => {
+    const value = raw[key] && typeof raw[key] === 'object' ? raw[key] : {};
+    const fallback = defaults[key] || {};
+    if (key === 'microsoft') {
+      return {
+        endpoint: String(value.endpoint || fallback.endpoint || '').trim(),
+        region: String(value.region || fallback.region || '').trim(),
+        from: String(value.from || fallback.from || 'en').trim(),
+        to: String(value.to || fallback.to || 'zh-Hans').trim()
+      };
+    }
+    return {
+      apiUrl: String(value.apiUrl || fallback.apiUrl || '').trim(),
+      model: String(value.model || fallback.model || '').trim(),
+      maxTextLength: clampNumber(Number(value.maxTextLength), 100, 30000, fallback.maxTextLength || 8000),
+      maxOutputTokens: clampNumber(Number(value.maxOutputTokens), 128, 16000, fallback.maxOutputTokens || 1600)
+    };
+  };
+  return {
+    microsoft: cleanProvider('microsoft'),
+    hunyuan: cleanProvider('hunyuan'),
+    siliconflow: cleanProvider('siliconflow'),
+    zhipu: cleanProvider('zhipu'),
+    babellite: cleanProvider('babellite')
+  };
+}
+
+function normalizeSentenceTranslationSecrets(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const result = {};
+  ['microsoft', 'hunyuan', 'siliconflow', 'zhipu', 'babellite'].forEach((key) => {
+    const item = source[key] && typeof source[key] === 'object' ? source[key] : {};
+    result[key] = { apiKey: String(item.apiKey || '').trim() };
+  });
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI-compatible Custom AI Provider
 // API Key is stored separately in dictFloatCustomAiSecret and is deliberately
@@ -558,11 +711,17 @@ function normalizeBackgroundSettings(input) {
     ...raw,
     translationProviders: {
       chrome: providers.chrome !== false,
+      microsoft: providers.microsoft === true,
+      hunyuan: providers.hunyuan === true,
+      siliconflow: providers.siliconflow === true,
+      zhipu: providers.zhipu === true,
+      babellite: providers.babellite === true,
       youdao: providers.youdao === true,
       baidu: providers.baidu === true,
       doubao: providers.doubao === true,
       customAi: providers.customAi === true
     },
+    sentenceTranslationConfigs: normalizeSentenceTranslationConfigs(raw.sentenceTranslationConfigs || defaultSentenceTranslationConfigs()),
     customAiProvider: normalizeBackgroundCustomAiProvider(raw.customAiProvider),
     aiProviders
   };
