@@ -1,100 +1,45 @@
-# DictFloat v0.4.1 — Exact MDX lookup and drag ordering
+# DictFloat v0.4.2 — Reader-mode window reliability
 
 DictFloat is a compact Chrome floating dictionary for local glossaries, linked MDX text lookup, optional Wudao offline data, online fallback, and webpage selection lookup.
 
-## v0.4.1 / 本版重点
+## v0.4.2 / 本版重点
 
-### Exact MDX lookup / 精确 MDX 词条选择
+### Reader-mode compatibility / 简读模式兼容
 
-For dictionaries with `StripKey=Yes`, an input such as `physical` can share the same normalized key as entries such as `physical-`. DictFloat now ranks raw headwords before reading a definition: an exact typed headword wins, then decorated variants are used only as a fallback. This prevents the wrong nearby entry from replacing the requested word.
+Some reading overlays create a full-screen fixed layer at the browser’s highest normal `z-index`. DictFloat now uses two protection layers whenever it opens:
 
-### Drag ordering / 拖动排序
+1. Its unique root is moved to the end of `document.documentElement` and receives an inline maximum stacking fallback.
+2. The visible DictFloat panel, minimized bar, and selection bubble use `popover="manual"` where supported, which places them in Chrome’s browser top layer above ordinary reader overlays.
 
-Dictionary Library rows now have a small `⠿` drag handle. Drag a source above or below another source to persist the lookup and display order. The old `↑ / ↓` button clutter was removed.
+This means the extension toolbar click no longer depends on the original article DOM remaining visible. The panel can be opened from normal webpages and from overlay-based reader modes using the same single DictFloat instance.
 
-### Unified Dictionary Library / 统一词典库
+### Deterministic toolbar click / 图标点击更可靠
 
-Settings manages every lookup source in one **Dictionary Library** instead of splitting Wudao, MDX/MDD, local glossaries, and lookup order into separate sections.
+Toolbar open/lookup messages now acknowledge completion only after DictFloat has created or repaired its single root. This prevents a fast follow-up repair message from racing the first panel render.
 
-Each source has:
+### Single window still enforced / 仍坚持唯一窗口
 
-- enable / disable checkbox
-- drag handle and order number
-- source type
-- file/package identity
-- source-specific actions
+The reader-mode fix keeps the existing single-window rules:
 
-Examples:
+- one `#dictfloat-root` per document
+- one visible panel or one minimized bar
+- Search, History, Add, Edit, and Return replace content inside the same window
+- stale content-script roots are removed before the current instance renders
 
-```text
-🔗 TLD.mdx · 181 MB · 1 CSS · 7 MDD
-📦 en.ind · en.z · zh.ind · zh.z · 83 MB
-🔗 pcie-notes.csv · 126 editable entries
-```
+## Upgrade notes / 更新说明
 
-### Per-source controls / 每个来源独立管理
+1. Replace the old extension folder with v0.4.2.
+2. In `chrome://extensions`, click **Reload** for DictFloat.
+3. Reload the webpage where you use reader mode, or close and reopen that tab.
+4. Open your reader mode first, then click the DictFloat toolbar icon.
 
-- **Linked MDX/MDD**: Rename display name, Rebuild / Reconnect, Original / Compact CSS mode, Export source config, Remove.
-- **Wudao Offline**: Rename, Replace the four local data files, Export source config, Remove.
-- **Editable glossary / imported JSON/CSV**: Rename, Export its own JSON, Remove.
-- **Online fallback**: enable / disable and reorder in the same library.
+## Current dictionary capabilities
 
-`Export` for linked MDX and Wudao exports **source settings only**. It never copies or redistributes dictionary files. Glossary export contains the actual editable entries.
+- local editable glossaries
+- source ordering and source collapse
+- optional Wudao offline pack
+- linked MDX text lookup with on-demand block reads
+- optional safe original CSS rendering for linked dictionaries
+- online fallback
 
-### Add source menu / 统一添加入口
-
-Use **+ Add source** to:
-
-1. Create empty glossary
-2. Import JSON / CSV glossary
-3. Import Wudao offline pack
-4. Connect MDX / MDD dictionary folder
-
-## Linked MDX performance architecture
-
-Large MDX files are linked rather than fully copied into IndexedDB:
-
-- DictFloat stores a lightweight MDX block map and file handles.
-- Raw `.mdx`, `.mdd`, `.css`, images, audio, fonts, and scripts remain in your local dictionary folder.
-- Index building runs in a Worker.
-- Lookup reads only the required Key Block and Record Block, then uses a small in-memory cache for nearby repeated queries.
-- MDD media and dictionary JavaScript remain disabled in this performance-first phase.
-
-## Original CSS / 原始 CSS
-
-When a connected folder contains a `.css` file, **Style: Original** is available:
-
-- It is scoped to the dictionary result area.
-- Standard typography, colors, indentation, numbered senses, examples, tables, and safe inline typography are retained where safe.
-- Dictionary JavaScript, external imports, fonts, external URLs, fixed-position rules, and layout escape rules are blocked.
-- Switch to **Style: Compact** where an original theme is too dense for the small floating panel.
-
-## Recommended order / 推荐顺序
-
-For the current word dictionaries:
-
-1. The Little Dict
-2. 牛津高阶双解9
-3. 朗文当代第六版（英汉）
-4. Wudao · Offline
-5. Online
-
-Drag your own PCIe / GPU glossary above the general dictionaries if you want technical terms to appear first.
-
-## Current MDX limits / 当前限制
-
-Supported in this beta:
-
-- MDX v1/v2
-- uncompressed and zlib/deflate Key/Record Blocks
-- common `Encrypted=2` Key Block Info
-- linked folder lookup, source ordering, enable/disable, and scoped CSS modes
-
-Not yet supported:
-
-- LZO-compressed MDX
-- MDX record encryption requiring a registration key
-- MDD image/audio rendering
-- TTF/OTF font loading
-- dictionary JavaScript execution
-- full visual reproduction of every MDict theme
+MDX/MDD media, custom dictionary JavaScript, external fonts, LZO blocks, and protected record blocks remain outside the current performance-first scope.

@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.1';
+  const RUNTIME_VERSION = '0.4.2';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -51,6 +51,7 @@
     wudaoSource: { installed: false, enabled: false },
     draftEntry: null,
     cssPromise: null,
+    rootPromise: null,
     destroyed: false,
     themeMedia: null,
     themeListener: null
@@ -112,11 +113,17 @@
       return;
     }
     if (message?.type === 'DICTFLOAT_REPAIR') {
-      if (state.host?.isConnected) pruneDuplicateRoots();
-      return;
+      void repairWindowHost().then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
     }
-    if (message?.type === 'DICTFLOAT_TOGGLE') void toggle();
-    if (message?.type === 'DICTFLOAT_LOOKUP') void openAndLookup(message.query || '');
+    if (message?.type === 'DICTFLOAT_TOGGLE') {
+      void toggle().then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
+    }
+    if (message?.type === 'DICTFLOAT_LOOKUP') {
+      void openAndLookup(message.query || '').then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
+    }
   }
 
   function onStorageChanged(changes, areaName) {
@@ -142,6 +149,9 @@
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     chrome.storage.onChanged.removeListener(onStorageChanged);
     removeBubble();
+    if (state.mount) {
+      [...state.mount.children].forEach((node) => hideFromTopLayer(node));
+    }
     if (isOwnedHost(state.host)) state.host.remove();
     state.host = null;
     state.mount = null;
@@ -163,47 +173,102 @@
 
   async function ensureRoot(renderOnCreate = false) {
     if (!isCurrentInstance()) return false;
-
-    // Reuse only our own root. Anything else is stale and is removed before
-    // the asynchronous stylesheet fetch can create a race.
-    if (!isOwnedHost(state.host) || !state.host?.isConnected || !state.mount) {
-      document.querySelectorAll(ROOT_SELECTOR).forEach((node) => {
-        if (!isOwnedHost(node)) node.remove();
-      });
-      let host = document.querySelector('#dictfloat-root');
-      if (host && !isOwnedHost(host)) {
-        host.remove();
-        host = null;
-      }
-      if (!host) {
-        host = document.createElement('div');
-        host.id = 'dictfloat-root';
-        host.setAttribute('data-dictfloat', 'true');
-        host.setAttribute('data-dictfloat-root', 'true');
-        host.setAttribute('data-dictfloat-owner', INSTANCE_TOKEN);
-        // Append synchronously. This is the single, document-wide claim.
-        document.documentElement.append(host);
-      }
-      state.host = host;
-      state.mount = host.shadowRoot || host.attachShadow({ mode: 'open' });
-      if (!state.mount.querySelector('style[data-dictfloat-style="true"]')) {
-        const style = document.createElement('style');
-        style.setAttribute('data-dictfloat-style', 'true');
-        state.mount.append(style);
-        try {
-          const css = await ensureStyles();
-          if (!isCurrentInstance() || !isOwnedHost(host)) return false;
-          style.textContent = css;
-        } catch (error) {
-          style.textContent = ':host{all:initial}';
-          console.warn('DictFloat styles could not be loaded.', error);
+    // Serialize root creation. A toolbar click, a selection bubble and a repair
+    // message can otherwise arrive in the same event turn on complex reader pages.
+    if (state.rootPromise) return state.rootPromise;
+    state.rootPromise = (async () => {
+      // Reuse only our own root. Anything else is stale and is removed before
+      // the asynchronous stylesheet fetch can create a race.
+      if (!isOwnedHost(state.host) || !state.host?.isConnected || !state.mount) {
+        document.querySelectorAll(ROOT_SELECTOR).forEach((node) => {
+          if (!isOwnedHost(node)) node.remove();
+        });
+        let host = document.querySelector('#dictfloat-root');
+        if (host && !isOwnedHost(host)) {
+          host.remove();
+          host = null;
+        }
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'dictfloat-root';
+          host.setAttribute('data-dictfloat', 'true');
+          host.setAttribute('data-dictfloat-root', 'true');
+          host.setAttribute('data-dictfloat-owner', INSTANCE_TOKEN);
+          document.documentElement.append(host);
+        }
+        state.host = host;
+        state.mount = host.shadowRoot || host.attachShadow({ mode: 'open' });
+        if (!state.mount.querySelector('style[data-dictfloat-style="true"]')) {
+          const style = document.createElement('style');
+          style.setAttribute('data-dictfloat-style', 'true');
+          state.mount.append(style);
+          try {
+            const css = await ensureStyles();
+            if (!isCurrentInstance() || !isOwnedHost(host)) return false;
+            style.textContent = css;
+          } catch (error) {
+            style.textContent = ':host{all:initial}';
+            console.warn('DictFloat styles could not be loaded.', error);
+          }
         }
       }
+      if (!isCurrentInstance() || !isOwnedHost(state.host)) return false;
+      promoteHost(state.host);
+      pruneDuplicateRoots();
+      if (renderOnCreate) render();
+      return true;
+    })();
+    try {
+      return await state.rootPromise;
+    } finally {
+      state.rootPromise = null;
     }
-    if (!isCurrentInstance() || !isOwnedHost(state.host)) return false;
+  }
+
+  function promoteHost(host) {
+    if (!host || !host.isConnected) return;
+    // Some reading overlays use the maximum normal stacking level. Keep our
+    // host as the final html child and give it an inline fallback layer.
+    // The visible panel itself is also promoted to the browser top layer below.
+    host.style.setProperty('all', 'initial', 'important');
+    host.style.setProperty('position', 'fixed', 'important');
+    host.style.setProperty('inset', '0', 'important');
+    host.style.setProperty('display', 'block', 'important');
+    host.style.setProperty('visibility', 'visible', 'important');
+    host.style.setProperty('opacity', '1', 'important');
+    host.style.setProperty('z-index', '2147483647', 'important');
+    host.style.setProperty('pointer-events', 'none', 'important');
+    if (host.parentNode !== document.documentElement || document.documentElement.lastElementChild !== host) {
+      document.documentElement.append(host);
+    }
+  }
+
+  async function repairWindowHost() {
+    await ensureRoot(false);
+    if (!isCurrentInstance() || !state.host) return;
+    promoteHost(state.host);
     pruneDuplicateRoots();
-    if (renderOnCreate) render();
-    return true;
+  }
+
+  function showInTopLayer(node) {
+    if (!node) return false;
+    // Popover=manual uses Chrome's top layer, above reader-mode overlays and
+    // fullscreen fixed containers. Fallback remains the explicit max z-index.
+    if (typeof node.showPopover !== 'function') return false;
+    try {
+      node.setAttribute('popover', 'manual');
+      node.showPopover();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function hideFromTopLayer(node) {
+    if (!node || typeof node.hidePopover !== 'function') return;
+    try {
+      if (node.matches?.(':popover-open')) node.hidePopover();
+    } catch (_) {}
   }
 
   function pruneDuplicateRoots() {
@@ -216,7 +281,10 @@
   function clearMount() {
     if (!state.mount) return;
     [...state.mount.children].forEach((node) => {
-      if (node.tagName !== 'STYLE') node.remove();
+      if (node.tagName !== 'STYLE') {
+        hideFromTopLayer(node);
+        node.remove();
+      }
     });
   }
 
@@ -264,6 +332,7 @@
 
   function render() {
     if (!isCurrentInstance() || !state.mount || !isOwnedHost(state.host)) return;
+    promoteHost(state.host);
     pruneDuplicateRoots();
     clearMount();
     state.panel = null;
@@ -275,15 +344,16 @@
     }
     const panel = el('section', `dictfloat-panel${isDarkTheme() ? ' dark' : ''}`);
     state.panel = panel;
-    panel.style.cssText = `position:fixed;left:${pos.left}px;top:${pos.top}px;width:${panelWidth()}px;font-size:${fontSize()}px;z-index:2147483646;pointer-events:auto;`;
+    panel.style.cssText = `position:fixed;left:${pos.left}px;top:${pos.top}px;width:${panelWidth()}px;font-size:${fontSize()}px;z-index:2147483647;pointer-events:auto;`;
     panel.append(header(), searchBox(), tabs(), content(), footer());
     state.mount.append(panel);
+    showInTopLayer(panel);
     makeDraggable(panel, panel.querySelector('.dictfloat-head'));
   }
 
   function renderMini(pos) {
     const mini = el('div', `dictfloat-mini${isDarkTheme() ? ' dark' : ''}`);
-    mini.style.cssText = `position:fixed;left:${pos.left}px;top:${pos.top}px;z-index:2147483646;pointer-events:auto;`;
+    mini.style.cssText = `position:fixed;left:${pos.left}px;top:${pos.top}px;z-index:2147483647;pointer-events:auto;`;
     mini.append(el('span', 'dictfloat-branddot'), el('span', 'dictfloat-mini-name', 'DictFloat'));
     const restoreButton = el('button', '', '⌃');
     restoreButton.type = 'button';
@@ -292,6 +362,7 @@
     restoreButton.addEventListener('click', restore);
     mini.append(restoreButton);
     state.mount.append(mini);
+    showInTopLayer(mini);
     makeMiniDraggable(mini);
   }
 
@@ -1515,10 +1586,12 @@
       void openAndLookup(text);
     });
     state.mount.append(bubble);
+    showInTopLayer(bubble);
     state.bubble = bubble;
   }
 
   function removeBubble() {
+    hideFromTopLayer(state.bubble);
     state.bubble?.remove();
     state.bubble = null;
   }

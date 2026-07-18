@@ -1,7 +1,7 @@
 importScripts('mdict-db.js', 'mdict-core.js');
 
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.4.1';
+const CONTENT_RUNTIME_VERSION = '0.4.2';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
