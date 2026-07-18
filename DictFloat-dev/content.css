@@ -2,7 +2,7 @@
   --df-accent:#16a34a;
   --df-accent-strong:#15803d;
   --df-accent-soft:#ecfdf3;
-  --df-accent-ring:rgba(22,163,74,.16);
+  --df-accent-ring:rgba(22,163,74,.18);
   all: initial;
   position: fixed;
   inset: 0;
@@ -13,7 +13,7 @@
   color: #253147;
 }
 :host([data-accent="rose"]) { --df-accent:#ec4899; --df-accent-strong:#db2777; --df-accent-soft:#fff0f7; --df-accent-ring:rgba(236,72,153,.14); }
-:host([data-accent="green"]) { --df-accent:#16a34a; --df-accent-strong:#15803d; --df-accent-soft:#ecfdf3; --df-accent-ring:rgba(22,163,74,.16); }
+:host([data-accent="green"]) { --df-accent:#16a34a; --df-accent-strong:#15803d; --df-accent-soft:#ecfdf3; --df-accent-ring:rgba(22,163,74,.18); }
 :host([data-accent="blue"]) { --df-accent:#2563eb; --df-accent-strong:#1d4ed8; --df-accent-soft:#eff6ff; --df-accent-ring:rgba(37,99,235,.16); }
 *, *::before, *::after { box-sizing: border-box; }
 button, input, select, textarea { font: inherit; }
@@ -430,69 +430,68 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-mini button:hover { background:#27344a; }
 
 .dictfloat-bubble {
-  /* The lookup beacon stays outside the drag path and uses a longer stem so
-     the clickable badge can clear copy/edit toolbars that sit close above the
-     selected text. */
+  /* Long-tail beacon: the badge sits farther away from the selected text so it
+     can clear copy/edit toolbars. The stem can visually span about two lines. */
   touch-action:none;
   user-select:none;
-  width:40px;
-  height:66px;
+  width:56px;
+  height:94px;
   display:block;
   margin:0;
   padding:0;
   border:0;
   background:transparent;
   cursor:pointer;
-  filter:drop-shadow(0 6px 14px var(--df-accent-ring));
+  filter:drop-shadow(0 8px 16px var(--df-accent-ring));
 }
 .dictfloat-bubble:hover { transform:translateY(-1px); }
 .dictfloat-bubble-badge,
 .dictfloat-bubble-stem,
 .dictfloat-bubble-dot { position:absolute; display:block; pointer-events:none; }
 .dictfloat-bubble-badge {
-  width:28px;
-  height:28px;
-  border-radius:15px 15px 15px 8px;
-  background:linear-gradient(160deg, color-mix(in srgb, var(--df-accent) 66%, white), var(--df-accent));
+  width:36px;
+  height:36px;
+  border-radius:18px;
+  background:linear-gradient(160deg, color-mix(in srgb, var(--df-accent) 58%, white), var(--df-accent));
   color:#fff;
-  box-shadow:0 0 0 3px var(--df-accent-ring);
-  font-size:18px;
+  box-shadow:0 0 0 4px color-mix(in srgb, var(--df-accent) 18%, white);
+  font-size:24px;
   font-weight:800;
-  line-height:28px;
+  line-height:36px;
   text-align:center;
-  letter-spacing:-.04em;
+  letter-spacing:-.06em;
   font-family: ui-rounded, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 .dictfloat-bubble-stem {
-  width:4px;
-  height:27px;
+  width:5px;
+  height:45px;
   border-radius:999px;
-  background:linear-gradient(180deg, color-mix(in srgb, var(--df-accent) 70%, white), var(--df-accent-strong));
+  background:linear-gradient(180deg, color-mix(in srgb, var(--df-accent) 76%, white), var(--df-accent-strong));
   transform-origin:top center;
 }
 .dictfloat-bubble-dot {
-  width:10px;
-  height:10px;
+  width:12px;
+  height:12px;
   border-radius:50%;
   background:var(--df-accent);
   box-shadow:0 0 0 2px color-mix(in srgb, var(--df-accent) 18%, white);
 }
 
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-badge { left:4px; top:0; }
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-stem { left:24px; top:24px; transform:rotate(34deg); }
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-dot { left:28px; top:50px; }
+.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-badge { left:6px; top:0; }
+.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-stem { left:31px; top:30px; transform:rotate(26deg); }
+.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-dot { left:39px; top:76px; }
 
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-badge { left:8px; top:0; border-radius:15px 15px 8px 15px; }
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-stem { left:12px; top:24px; transform:rotate(-34deg); }
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-dot { left:2px; top:50px; }
+.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-badge { left:14px; top:0; }
+.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-stem { left:18px; top:30px; transform:rotate(-26deg); }
+.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-dot { left:5px; top:76px; }
 
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-badge { left:4px; top:38px; }
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-stem { left:24px; top:14px; transform:rotate(-34deg); }
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-dot { left:28px; top:2px; }
+.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-badge { left:6px; top:58px; }
+.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-stem { left:31px; top:19px; transform:rotate(-26deg); }
+.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-dot { left:39px; top:4px; }
 
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-badge { left:8px; top:38px; border-radius:15px 15px 8px 15px; }
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-stem { left:12px; top:14px; transform:rotate(34deg); }
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-dot { left:2px; top:2px; }
+.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-badge { left:14px; top:58px; }
+.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-stem { left:18px; top:19px; transform:rotate(26deg); }
+.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-dot { left:5px; top:4px; }
 
 @media (max-width: 420px) {
   .dictfloat-panel { max-height: calc(100vh - 12px); }
