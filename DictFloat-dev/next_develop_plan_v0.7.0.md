@@ -13,6 +13,115 @@
 
 ---
 
+## DictFloat v0.7.0
+
+### 本次讨论定稿
+
+本次继续优化查词窗口底部快速开关的状态逻辑与视觉：
+
+1. 去掉所有 `✅`、`☐` 字符。
+2. 词典、Online、AI 三类开关统一使用椭圆按钮。
+3. 每个按钮内部使用 CSS 绘制状态圆点：
+   - 未启用：空心灰色圆点
+   - 已启用：绿色实心圆点并带轻微发光
+4. AI 开关不再只对当前 query 临时有效，而是和词典、Online 一样持久保存。
+5. AI Provider 新增时默认关闭；用户打开后会保持打开，关闭后也会保持关闭。
+6. Settings 页面和查词窗口共用同一个 `provider.enabled` 状态。
+
+### v0.7.0 已实现内容
+
+#### 1. 快速开关去掉字符勾选框
+
+底部显示从：
+
+```text
+词典: ✅1 ✅2   ✅Online   AI: ☐1 ☐2
+```
+
+改为：
+
+```text
+词典: ○ 1  ○ 2   ○ Online   AI: ○ 1  ○ 2
+```
+
+圆点由 CSS 绘制，不依赖系统字体，因此 Windows、Linux、macOS 上的大小和位置更一致。
+
+#### 2. 状态圆点视觉
+
+未启用：
+
+- 空心灰色圆环
+- 白色 / 深色背景下的普通按钮
+- 不发光
+
+已启用：
+
+- 绿色实心圆点
+- 绿色边框与浅绿色背景
+- 圆点带轻微绿色光晕
+- 深色模式下使用更深绿色按钮背景和更亮的绿色圆点
+
+#### 3. AI 开关持久化
+
+原 v0.6.9 的 AI 快速开关使用临时 `quickAiProviderIds`，切换 query 后会重置。
+
+v0.7.0 改为直接读写：
+
+```text
+dictFloatSettings.aiProviders[].enabled
+```
+
+因此：
+
+- 在查词窗口点击 AI 1 后，状态保存到 Chrome 本地存储。
+- 刷新网页、关闭窗口、重开 Chrome 后仍然保持。
+- 在 Settings 中启用 / 禁用 Provider，查词窗口会同步更新。
+- 新增 Provider 仍然默认 `enabled: false`。
+
+#### 4. AI 执行逻辑
+
+- 当前已经有 query 时，打开某个 AI Provider 会立即对当前内容执行。
+- 关闭 AI Provider 时，会移除当前 query 对应的 AI 结果卡片。
+- 后续查询如果是句子 / 段落，所有已启用 AI Provider 会自动执行。
+- 同一个 Provider 已经处于 loading 时，不会重复发起同一请求。
+
+#### 5. 词典与 Online 保持原有持久化逻辑
+
+- 词典开关继续保存到各自的本地配置。
+- Online 继续保存到 `dictFloatSettings.onlineLookup`。
+- 三类开关现在在视觉与行为上更加一致。
+
+### v0.7.0 代码改动文件
+
+```text
+content.js
+content.css
+manifest.json
+options.html
+next_develop_plan_v0.7.0.md
+```
+
+### v0.7.0 检查记录
+
+执行检查：
+
+```text
+node --check content.js
+python3 -m json.tool manifest.json
+```
+
+### 下一版 v0.7.1 规划
+
+建议下一版继续优化：
+
+1. 给编号按钮增加更明确的 tooltip，例如 `1 · DeepSeek 英语精析`。
+2. 允许用户在 Settings 中配置快速开关显示顺序。
+3. AI 长输出增加折叠 / 展开。
+4. 增加 AI 请求取消能力。
+5. 检查多 Provider 同时启用时的并发与显示性能。
+
+---
+
 ## DictFloat v0.6.9
 
 ### 本次讨论定稿
