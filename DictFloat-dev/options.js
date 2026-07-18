@@ -5,6 +5,8 @@ const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
 const BACKUP_FORMAT = 'dictfloat-backup';
 const BACKUP_VERSION = 1;
+const RECOVERY_SNAPSHOT_KEY = 'dictFloatRecoverySnapshots';
+const RECOVERY_SNAPSHOT_LIMIT = 5;
 const BACKUP_STORAGE_KEYS = [
   'dictFloatSettings', 'dictFloatEntries', 'dictFloatDictionaries',
   'dictFloatMdictSources', 'dictFloatWudaoSource', 'dictFloatSourceOrder',
@@ -21,6 +23,7 @@ let mdictSources = [];
 let wudaoSource = null;
 let sourceOrder = [];
 let draggedSourceKey = '';
+let recoverySnapshots = [];
 
 void init();
 
@@ -34,7 +37,8 @@ async function init() {
     'dictFloatSourceOrder',
     'dictFloatHistory',
     'dictFloatPanelPosition',
-    'dictFloatCollapsedSources'
+    'dictFloatCollapsedSources',
+    RECOVERY_SNAPSHOT_KEY
   ]);
   const settings = { ...defaults, ...(data.dictFloatSettings || {}) };
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
@@ -42,6 +46,7 @@ async function init() {
   mdictSources = Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources.map(normalizeMdictSource) : [];
   wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
   sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
+  recoverySnapshots = normalizeRecoverySnapshots(data[RECOVERY_SNAPSHOT_KEY]);
   await reconcileMdictSourceHealth();
 
   for (const key of Object.keys(defaults)) {
@@ -61,7 +66,6 @@ async function init() {
   $('exportCsv').addEventListener('click', exportCsv);
   $('exportBackup').addEventListener('click', exportBackup);
   $('importBackup').addEventListener('change', importBackup);
-  $('reconnectDictionaryRoot').addEventListener('click', reconnectDictionaryRoot);
   $('reconnectDictionaryRootInline')?.addEventListener('click', reconnectDictionaryRoot);
   $('importFile').addEventListener('change', importFile);
   $('clearEntries').addEventListener('click', clearEntries);
@@ -72,6 +76,7 @@ async function init() {
   });
 
   renderDictionaryLibrary();
+  renderRecoverySnapshots();
   await chrome.storage.local.set({
     dictFloatDictionaries: dictionaries,
     dictFloatEntries: entries,
@@ -302,7 +307,7 @@ function buildGlossaryLibraryRow(dictionary, index) {
   if (!dictionary.builtIn) {
     actions.append(makeButton('Rename', () => renameDictionary(dictionary)));
     actions.append(makeButton('Export', () => exportGlossary(dictionary)));
-    actions.append(makeButton('Remove', () => deleteDictionary(dictionary), 'delete'));
+    actions.append(makeButton('Delete', () => deleteDictionary(dictionary), 'delete'));
   }
   return row;
 }
@@ -330,7 +335,7 @@ function buildMdictLibraryRow(source, index) {
     actions.append(style);
   }
   actions.append(makeButton('Export', () => exportMdictConfig(source)));
-  actions.append(makeButton('Remove', () => removeMdictSource(source), 'delete'));
+  actions.append(makeButton('Disconnect', () => removeMdictSource(source), 'delete'));
   return row;
 }
 
@@ -358,7 +363,7 @@ function buildWudaoLibraryRow(index) {
   actions.append(makeButton('Rename', renameWudaoSource));
   actions.append(makeButton(linked ? 'Replace' : 'Reconnect', linked ? () => $('importWudaoFiles').click() : reconnectDictionaryRoot));
   actions.append(makeButton('Export', exportWudaoConfig));
-  actions.append(makeButton('Remove', removeWudaoPack, 'delete'));
+  actions.append(makeButton('Remove pack', removeWudaoPack, 'delete'));
   return row;
 }
 
@@ -440,14 +445,26 @@ function exportWudaoConfig() {
 
 async function deleteDictionary(dictionary) {
   const count = entries.filter((entry) => entry.dictionaryId === dictionary.id).length;
-  if (!confirm(`Delete “${dictionary.name}” and its ${count} local ${count === 1 ? 'entry' : 'entries'}?`)) return;
+  const approved = await confirmRisk({
+    title: `Delete “${dictionary.name}”?`,
+    message: 'This removes the editable glossary and its local entries from DictFloat.',
+    impact: [
+      `${count} local ${count === 1 ? 'entry' : 'entries'} will be removed.`,
+      'Built-in PCIe Starter, linked MDX/MDD dictionaries, Wudao, history, and settings are not affected.',
+      'A recovery snapshot will be created first.'
+    ],
+    confirmLabel: 'Delete glossary',
+    requireText: count >= 20 ? dictionary.name : ''
+  });
+  if (!approved) return;
+  await createRecoverySnapshot(`Before deleting glossary: ${dictionary.name}`);
   entries = entries.filter((entry) => entry.dictionaryId !== dictionary.id);
   dictionaries = dictionaries.filter((item) => item.id !== dictionary.id);
   sourceOrder = normalizeSourceOrder(sourceOrder);
   await chrome.storage.local.set({ dictFloatEntries: entries, dictFloatDictionaries: dictionaries, dictFloatSourceOrder: sourceOrder });
   renderDictionaries();
   renderSourceOrder();
-  status('Glossary deleted.');
+  status(`Deleted “${dictionary.name}”. A recovery snapshot is available below.`);
 }
 
 async function saveDictionaries() {
@@ -560,9 +577,11 @@ async function reconnectDictionaryRoot() {
     status('Folder relinking needs a current Chrome desktop build.', true);
     return;
   }
-  const targets = mdictSources.length + ((wudaoSource?.installed || wudaoSource?.configured) ? 1 : 0);
+  const missingMdictSources = mdictSources.filter((source) => source.status !== 'ready');
+  const needsWudao = !!(wudaoSource?.configured && !wudaoSource?.installed);
+  const targets = missingMdictSources.length + (needsWudao ? 1 : 0);
   if (!targets) {
-    status('No linked dictionary source needs recovery yet. Connect a dictionary folder first.', true);
+    status('No dictionary source needs reconnecting. Existing links were left unchanged.');
     return;
   }
   try {
@@ -573,15 +592,15 @@ async function reconnectDictionaryRoot() {
     let recoveredMdx = 0;
     let missingMdx = 0;
 
-    for (let index = 0; index < mdictSources.length; index += 1) {
-      const source = mdictSources[index];
+    for (let index = 0; index < missingMdictSources.length; index += 1) {
+      const source = missingMdictSources[index];
       const candidate = await findMdictCandidateForSource(source, files);
       if (!candidate) {
         source.status = 'reconnect';
         missingMdx += 1;
         continue;
       }
-      status(`Relinking ${source.name} (${index + 1}/${mdictSources.length})…`);
+      status(`Relinking ${source.name} (${index + 1}/${missingMdictSources.length})…`);
       const linked = await linkMdictCandidate(folderHandle, candidate, files, source.id);
       linked.name = source.name || linked.name;
       linked.enabled = source.enabled !== false;
@@ -591,12 +610,13 @@ async function reconnectDictionaryRoot() {
         record.cssMode = linked.cssMode;
         await DictFloatMdictDB.putLinkedSource(record);
       }
-      mdictSources[index] = linked;
+      const at = mdictSources.findIndex((item) => item.id === source.id);
+      if (at >= 0) mdictSources[at] = linked;
       recoveredMdx += 1;
     }
 
     let recoveredWudao = false;
-    if (wudaoSource?.installed || wudaoSource?.configured) {
+    if (needsWudao) {
       const selected = await findWudaoFilesInDirectory(files, wudaoSource.fileNames);
       if (Object.values(selected).every(Boolean)) {
         status('Restoring Wudao offline data…');
@@ -845,8 +865,19 @@ async function toggleMdictStyle(source) {
 }
 
 async function removeMdictSource(source) {
-  if (!confirm(`Remove “${source.name}” and its local MDX text index? Your original files on disk are not changed.`)) return;
+  const approved = await confirmRisk({
+    title: `Disconnect “${source.name}”?`,
+    message: 'This removes DictFloat’s saved link and lightweight index for this dictionary.',
+    impact: [
+      `Original ${source.fileName || 'MDX'}, MDD, and CSS files on your computer will not be deleted.`,
+      'The dictionary can be reconnected later from Dictionary Library.',
+      'A recovery snapshot of its configuration will be created first.'
+    ],
+    confirmLabel: 'Disconnect source'
+  });
+  if (!approved) return;
   try {
+    await createRecoverySnapshot(`Before disconnecting MDX: ${source.name}`);
     if (globalThis.DictFloatMdictDB) await DictFloatMdictDB.deleteLinkedSource(source.id);
     await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_CLEAR_CACHE', sourceId: source.id });
     mdictSources = mdictSources.filter((item) => item.id !== source.id);
@@ -855,9 +886,9 @@ async function removeMdictSource(source) {
     await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
     renderMdictSources();
     renderSourceOrder();
-    status('MDX dictionary removed.');
+    status(`Disconnected “${source.name}”. A recovery snapshot is available below.`);
   } catch (error) {
-    status(`Unable to remove the MDX dictionary: ${error.message}`, true);
+    status(`Unable to disconnect the MDX dictionary: ${error.message}`, true);
   }
 }
 
@@ -909,22 +940,7 @@ function normalizeMdictSource(source) {
 
 async function exportBackup() {
   const snapshot = await chrome.storage.local.get(BACKUP_STORAGE_KEYS);
-  const backup = {
-    format: BACKUP_FORMAT,
-    version: BACKUP_VERSION,
-    exportedAt: new Date().toISOString(),
-    appVersion: chrome.runtime.getManifest().version,
-    settings: snapshot.dictFloatSettings || { ...defaults },
-    entries: Array.isArray(snapshot.dictFloatEntries) ? snapshot.dictFloatEntries : entries,
-    dictionaries: Array.isArray(snapshot.dictFloatDictionaries) ? snapshot.dictFloatDictionaries : dictionaries,
-    mdictSources: (Array.isArray(snapshot.dictFloatMdictSources) ? snapshot.dictFloatMdictSources : mdictSources).map(sourceForBackup),
-    wudaoSource: wudaoSourceForBackup(snapshot.dictFloatWudaoSource || wudaoSource),
-    sourceOrder: Array.isArray(snapshot.dictFloatSourceOrder) ? snapshot.dictFloatSourceOrder : sourceOrder,
-    history: Array.isArray(snapshot.dictFloatHistory) ? snapshot.dictFloatHistory : [],
-    panelPosition: snapshot.dictFloatPanelPosition || null,
-    collapsedSources: Array.isArray(snapshot.dictFloatCollapsedSources) ? snapshot.dictFloatCollapsedSources : [],
-    note: 'MDX/MDD and Wudao data files are not included. Restore them with Reconnect dictionary root.'
-  };
+  const backup = buildBackupPayload(snapshot);
   const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   download(`dictfloat-backup-${stamp}.json`, JSON.stringify(backup, null, 2), 'application/json');
   status(`Backup exported: ${backup.entries.length} editable entries and ${backup.mdictSources.length} linked MDX source record${backup.mdictSources.length === 1 ? '' : 's'}.`);
@@ -955,48 +971,68 @@ async function importBackup(event) {
   try {
     const parsed = JSON.parse(await file.text());
     if (parsed?.format !== BACKUP_FORMAT) throw new Error('This is not a DictFloat backup file. Use + Add source for a glossary JSON or CSV file.');
-    if (!confirm('Restore this backup? Current settings, glossaries, history, and source configuration will be replaced. Linked dictionary files can be restored afterward with Reconnect dictionary root.')) return;
-
-    if (globalThis.DictFloatMdictDB?.clearLinkedSources) await DictFloatMdictDB.clearLinkedSources();
-    await deleteWudaoPack().catch(() => undefined);
-    await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
-
-    entries = Array.isArray(parsed.entries) ? parsed.entries.map(normalizeEntry) : [];
-    dictionaries = normalizeDictionaries(parsed.dictionaries);
-    mdictSources = Array.isArray(parsed.mdictSources)
-      ? parsed.mdictSources.map((source) => normalizeMdictSource({ ...source, status: 'reconnect' }))
-      : [];
-    wudaoSource = parsed.wudaoSource
-      ? normalizeWudaoSource({ ...parsed.wudaoSource, installed: false, enabled: false, configured: true, needsReconnect: true })
-      : normalizeWudaoSource(null);
-    sourceOrder = normalizeSourceOrder(parsed.sourceOrder);
-    const restoredSettings = { ...defaults, ...(parsed.settings || {}) };
-    const restoredHistory = Array.isArray(parsed.history) ? parsed.history : [];
-    const restoredCollapsed = Array.isArray(parsed.collapsedSources) ? parsed.collapsedSources.map(String) : [];
-    const restoredPosition = parsed.panelPosition && typeof parsed.panelPosition === 'object' ? parsed.panelPosition : null;
-
-    await chrome.storage.local.set({
-      dictFloatSettings: restoredSettings,
-      dictFloatEntries: entries,
-      dictFloatDictionaries: dictionaries,
-      dictFloatMdictSources: mdictSources,
-      dictFloatWudaoSource: wudaoSource,
-      dictFloatSourceOrder: sourceOrder,
-      dictFloatHistory: restoredHistory,
-      dictFloatPanelPosition: restoredPosition,
-      dictFloatCollapsedSources: restoredCollapsed
+    const incomingEntries = Array.isArray(parsed.entries) ? parsed.entries.length : 0;
+    const incomingGlossaries = Array.isArray(parsed.dictionaries) ? parsed.dictionaries.filter((item) => !item.builtIn).length : 0;
+    const incomingMdx = Array.isArray(parsed.mdictSources) ? parsed.mdictSources.length : 0;
+    const approved = await confirmRisk({
+      title: 'Restore this backup?',
+      message: `“${file.name}” will replace the current DictFloat configuration.`,
+      impact: [
+        `${incomingEntries} editable ${incomingEntries === 1 ? 'entry' : 'entries'} · ${incomingGlossaries} ${incomingGlossaries === 1 ? 'glossary' : 'glossaries'} · ${incomingMdx} linked MDX record${incomingMdx === 1 ? '' : 's'}.`,
+        'A recovery snapshot of the current state will be created first.',
+        'MDX/MDD links and Wudao data will need reconnecting after restoration.'
+      ],
+      confirmLabel: 'Restore backup',
+      requireText: 'RESTORE'
     });
-    for (const key of Object.keys(defaults)) {
-      const element = $(key);
-      if (!element) continue;
-      if (element.type === 'checkbox') element.checked = !!restoredSettings[key];
-      else element.value = restoredSettings[key];
-    }
-    renderDictionaryLibrary();
-    status(`Backup restored. Use Reconnect dictionary root to restore ${mdictSources.length} MDX source${mdictSources.length === 1 ? '' : 's'}${wudaoSource.configured ? ' and Wudao' : ''}.`);
+    if (!approved) return;
+    await createRecoverySnapshot(`Before restoring backup: ${file.name}`);
+    await applyBackupPayload(parsed);
+    status(`Backup restored. Use Find missing dictionaries to restore ${mdictSources.length} MDX source${mdictSources.length === 1 ? '' : 's'}${wudaoSource.configured ? ' and Wudao' : ''}.`);
   } catch (error) {
     status(`Backup import failed: ${error.message || error}`, true);
   }
+}
+
+async function applyBackupPayload(parsed) {
+  if (globalThis.DictFloatMdictDB?.clearLinkedSources) await DictFloatMdictDB.clearLinkedSources();
+  await deleteWudaoPack().catch(() => undefined);
+  await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
+
+  entries = Array.isArray(parsed.entries) ? parsed.entries.map(normalizeEntry) : [];
+  dictionaries = normalizeDictionaries(parsed.dictionaries);
+  mdictSources = Array.isArray(parsed.mdictSources)
+    ? parsed.mdictSources.map((source) => normalizeMdictSource({ ...source, status: 'reconnect' }))
+    : [];
+  wudaoSource = parsed.wudaoSource
+    ? normalizeWudaoSource({ ...parsed.wudaoSource, installed: false, enabled: false, configured: true, needsReconnect: true })
+    : normalizeWudaoSource(null);
+  sourceOrder = normalizeSourceOrder(parsed.sourceOrder);
+  const restoredSettings = { ...defaults, ...(parsed.settings || {}) };
+  const restoredHistory = Array.isArray(parsed.history) ? parsed.history : [];
+  const restoredCollapsed = Array.isArray(parsed.collapsedSources) ? parsed.collapsedSources.map(String) : [];
+  const restoredPosition = parsed.panelPosition && typeof parsed.panelPosition === 'object' ? parsed.panelPosition : null;
+
+  await chrome.storage.local.set({
+    dictFloatSettings: restoredSettings,
+    dictFloatEntries: entries,
+    dictFloatDictionaries: dictionaries,
+    dictFloatMdictSources: mdictSources,
+    dictFloatWudaoSource: wudaoSource,
+    dictFloatSourceOrder: sourceOrder,
+    dictFloatHistory: restoredHistory,
+    dictFloatPanelPosition: restoredPosition,
+    dictFloatCollapsedSources: restoredCollapsed
+  });
+  for (const key of Object.keys(defaults)) {
+    const element = $(key);
+    if (!element) continue;
+    if (element.type === 'checkbox') element.checked = !!restoredSettings[key];
+    else element.value = restoredSettings[key];
+  }
+  await reconcileMdictSourceHealth();
+  renderDictionaryLibrary();
+  renderRecoverySnapshots();
 }
 
 function exportJson() {
@@ -1076,7 +1112,12 @@ async function importFile(event) {
     })).filter((entry) => entry.term && entry.definition);
     if (!incoming.length && !incomingMdictSources.length) throw new Error('No valid entries or MDX source records found.');
     const byKey = new Map(entries.map((entry) => [`${entry.dictionaryId}:${entry.term.toLowerCase()}`, entry]));
-    incoming.forEach((entry) => byKey.set(`${entry.dictionaryId}:${entry.term.toLowerCase()}`, entry));
+    let skippedDuplicates = 0;
+    incoming.forEach((entry) => {
+      const key = `${entry.dictionaryId}:${entry.term.toLowerCase()}`;
+      if (byKey.has(key)) { skippedDuplicates += 1; return; }
+      byKey.set(key, entry);
+    });
     entries = [...byKey.values()];
     incomingMdictSources.map((raw) => normalizeMdictSource({ ...raw, status: 'reconnect' })).forEach((source) => {
       mdictSources = mdictSources.filter((item) => item.id !== source.id && !(item.fileName === source.fileName && item.fileSize === source.fileSize));
@@ -1094,19 +1135,33 @@ async function importFile(event) {
       dictFloatSourceOrder: sourceOrder
     });
     renderDictionaryLibrary();
-    const recoveryHint = incomingMdictSources.length || incomingWudaoSource ? ' Reconnect dictionary root to restore local files.' : '';
-    status(`Imported ${incoming.length} editable ${incoming.length === 1 ? 'entry' : 'entries'} from ${file.name}.${recoveryHint}`);
+    const recoveryHint = incomingMdictSources.length || incomingWudaoSource ? ' Use Find missing dictionaries to restore local files.' : '';
+    status(`Imported ${incoming.length - skippedDuplicates} editable ${incoming.length - skippedDuplicates === 1 ? 'entry' : 'entries'} from ${file.name}${skippedDuplicates ? ` · kept ${skippedDuplicates} existing duplicate${skippedDuplicates === 1 ? '' : 's'}` : ''}.${recoveryHint}`);
   } catch (error) {
     status(`Import failed: ${error.message}`, true);
   }
 }
 
 async function clearEntries() {
-  if (!confirm('Clear every DictFloat glossary entry? Export a JSON backup first if you may need them later.')) return;
+  const count = entries.length;
+  if (!count) { status('There are no editable glossary entries to clear.'); return; }
+  const approved = await confirmRisk({
+    title: 'Clear all editable glossary entries?',
+    message: 'This is a high-impact change. All editable entries across every glossary will be removed.',
+    impact: [
+      `${count} editable ${count === 1 ? 'entry' : 'entries'} will be permanently removed from the active library.`,
+      'PCIe Starter, linked MDX/MDD dictionaries, Wudao, history, and settings will not be affected.',
+      'A recovery snapshot will be created first.'
+    ],
+    confirmLabel: `Clear ${count} ${count === 1 ? 'entry' : 'entries'}`,
+    requireText: 'CLEAR'
+  });
+  if (!approved) return;
+  await createRecoverySnapshot(`Before clearing ${count} editable glossary entries`);
   entries = [];
   await chrome.storage.local.set({ dictFloatEntries: [] });
   renderDictionaries();
-  status('All glossary entries cleared. MDX source records were kept.');
+  status(`Cleared ${count} editable ${count === 1 ? 'entry' : 'entries'}. A recovery snapshot is available below.`);
 }
 
 function normalizeEntry(entry) {
@@ -1198,6 +1253,164 @@ function makeButton(text, handler, className = '') {
   button.addEventListener('click', handler);
   return button;
 }
+
+// ---------------------------------------------------------------------------
+// Data safety / recovery
+// ---------------------------------------------------------------------------
+function normalizeRecoverySnapshots(input) {
+  return (Array.isArray(input) ? input : []).filter((item) => item && item.data).map((item) => ({
+    id: String(item.id || crypto.randomUUID()),
+    label: String(item.label || 'Recovery snapshot'),
+    createdAt: Number(item.createdAt || Date.now()),
+    data: item.data
+  })).sort((a, b) => b.createdAt - a.createdAt).slice(0, RECOVERY_SNAPSHOT_LIMIT);
+}
+
+function recoverySnapshotSummary(snapshot) {
+  const data = snapshot?.data || {};
+  const count = Array.isArray(data.entries) ? data.entries.length : 0;
+  const glossaryCount = Array.isArray(data.dictionaries) ? data.dictionaries.filter((item) => !item.builtIn).length : 0;
+  const historyCount = Array.isArray(data.history) ? data.history.length : 0;
+  return `${count} editable ${count === 1 ? 'entry' : 'entries'} · ${glossaryCount} ${glossaryCount === 1 ? 'glossary' : 'glossaries'} · ${historyCount} history`;
+}
+
+function renderRecoverySnapshots() {
+  const list = $('recoverySnapshotList');
+  if (!list) return;
+  list.textContent = '';
+  if (!recoverySnapshots.length) {
+    const empty = document.createElement('div');
+    empty.className = 'recovery-snapshot-empty';
+    empty.textContent = 'No recovery snapshot yet.';
+    list.append(empty);
+    return;
+  }
+  recoverySnapshots.forEach((snapshot) => {
+    const row = document.createElement('div');
+    row.className = 'recovery-snapshot';
+    const info = document.createElement('div');
+    info.className = 'recovery-snapshot-info';
+    const title = document.createElement('div');
+    title.className = 'recovery-snapshot-title';
+    title.textContent = snapshot.label;
+    const meta = document.createElement('div');
+    meta.className = 'recovery-snapshot-meta';
+    meta.textContent = `${new Date(snapshot.createdAt).toLocaleString()} · ${recoverySnapshotSummary(snapshot)}`;
+    info.append(title, meta);
+    const restore = makeButton('Restore', () => restoreRecoverySnapshot(snapshot));
+    restore.title = 'Restore this snapshot';
+    row.append(info, restore);
+    list.append(row);
+  });
+}
+
+function buildBackupPayload(snapshot = {}) {
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    appVersion: chrome.runtime.getManifest().version,
+    settings: snapshot.dictFloatSettings || { ...defaults },
+    entries: Array.isArray(snapshot.dictFloatEntries) ? snapshot.dictFloatEntries : entries,
+    dictionaries: Array.isArray(snapshot.dictFloatDictionaries) ? snapshot.dictFloatDictionaries : dictionaries,
+    mdictSources: (Array.isArray(snapshot.dictFloatMdictSources) ? snapshot.dictFloatMdictSources : mdictSources).map(sourceForBackup),
+    wudaoSource: wudaoSourceForBackup(snapshot.dictFloatWudaoSource || wudaoSource),
+    sourceOrder: Array.isArray(snapshot.dictFloatSourceOrder) ? snapshot.dictFloatSourceOrder : sourceOrder,
+    history: Array.isArray(snapshot.dictFloatHistory) ? snapshot.dictFloatHistory : [],
+    panelPosition: snapshot.dictFloatPanelPosition || null,
+    collapsedSources: Array.isArray(snapshot.dictFloatCollapsedSources) ? snapshot.dictFloatCollapsedSources : [],
+    note: 'MDX/MDD and Wudao data files are not included. Their source configuration is preserved only.'
+  };
+}
+
+async function createRecoverySnapshot(label) {
+  const stored = await chrome.storage.local.get([...BACKUP_STORAGE_KEYS, RECOVERY_SNAPSHOT_KEY]);
+  const snapshot = {
+    id: crypto.randomUUID(),
+    label: String(label || 'Before a DictFloat change'),
+    createdAt: Date.now(),
+    data: buildBackupPayload(stored)
+  };
+  recoverySnapshots = [snapshot, ...normalizeRecoverySnapshots(stored[RECOVERY_SNAPSHOT_KEY])].slice(0, RECOVERY_SNAPSHOT_LIMIT);
+  await chrome.storage.local.set({ [RECOVERY_SNAPSHOT_KEY]: recoverySnapshots });
+  renderRecoverySnapshots();
+  return snapshot;
+}
+
+async function restoreRecoverySnapshot(snapshot) {
+  if (!snapshot?.data) return;
+  const approved = await confirmRisk({
+    title: 'Restore recovery snapshot?',
+    message: 'Current DictFloat settings and editable data will be replaced with this saved state.',
+    impact: [
+      recoverySnapshotSummary(snapshot),
+      'A new recovery snapshot of the current state will be created first.',
+      'Linked MDX/MDD and Wudao binary files are not contained in snapshots.'
+    ],
+    confirmLabel: 'Restore snapshot',
+    requireText: 'RESTORE'
+  });
+  if (!approved) return;
+  await createRecoverySnapshot(`Before restoring snapshot: ${snapshot.label}`);
+  await applyBackupPayload(snapshot.data);
+  status(`Restored snapshot: ${snapshot.label}`);
+}
+
+function confirmRisk(options = {}) {
+  const dialog = $('safetyDialog');
+  const title = $('safetyDialogTitle');
+  const message = $('safetyDialogMessage');
+  const impact = $('safetyDialogImpact');
+  const inputWrap = $('safetyDialogInputWrap');
+  const inputLabel = $('safetyDialogInputLabel');
+  const input = $('safetyDialogInput');
+  const cancel = $('safetyDialogCancel');
+  const confirmButton = $('safetyDialogConfirm');
+  if (!dialog || !title || !message || !impact || !inputWrap || !input || !cancel || !confirmButton) {
+    return Promise.resolve(false);
+  }
+  const required = String(options.requireText || '');
+  title.textContent = options.title || 'Confirm change';
+  message.textContent = options.message || 'Please review this change before continuing.';
+  impact.textContent = '';
+  (Array.isArray(options.impact) ? options.impact : []).filter(Boolean).forEach((item) => {
+    const row = document.createElement('li');
+    row.textContent = String(item);
+    impact.append(row);
+  });
+  impact.hidden = !impact.children.length;
+  input.value = '';
+  inputWrap.hidden = !required;
+  inputLabel.textContent = required ? `Type ${required} to continue.` : '';
+  confirmButton.textContent = options.confirmLabel || 'Continue';
+  confirmButton.disabled = !!required;
+  if (dialog.open) dialog.close();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      dialog.oncancel = null;
+      cancel.onclick = null;
+      confirmButton.onclick = null;
+      input.oninput = null;
+      try { if (dialog.open) dialog.close(); } catch (_) {}
+      resolve(!!value);
+    };
+    const sync = () => { confirmButton.disabled = required ? input.value.trim() !== required : false; };
+    input.oninput = sync;
+    cancel.onclick = () => finish(false);
+    confirmButton.onclick = () => {
+      if (!confirmButton.disabled) finish(true);
+    };
+    dialog.oncancel = (event) => { event.preventDefault(); finish(false); };
+    dialog.showModal();
+    if (required) setTimeout(() => input.focus(), 0);
+    else setTimeout(() => confirmButton.focus(), 0);
+  });
+}
+
 function status(message, error = false) {
   const node = $('status');
   node.textContent = message;
@@ -1249,6 +1462,21 @@ async function importWudaoFiles(event) {
   event.target.value = '';
   if (!files.length) return;
   try {
+    if (wudaoSource?.installed) {
+      const approved = await confirmRisk({
+        title: 'Replace Wudao offline pack?',
+        message: 'The selected four files will replace the Wudao data currently stored by DictFloat.',
+        impact: [
+          `Current local pack: ${formatSize(wudaoSource.totalSize)}.`,
+          'The old pack will be removed from extension storage after the new files are validated.',
+          'A recovery snapshot will keep the prior source configuration, not the old binary data.'
+        ],
+        confirmLabel: 'Replace pack',
+        requireText: 'REPLACE'
+      });
+      if (!approved) return;
+      await createRecoverySnapshot('Before replacing Wudao offline pack');
+    }
     await installWudaoSelected(classifyWudaoFiles(files));
   } catch (error) {
     status(`Wudao import failed: ${error.message || error}`, true);
@@ -1308,8 +1536,20 @@ async function validateWudaoIndex(file) {
 
 async function removeWudaoPack() {
   if (!(wudaoSource?.installed || wudaoSource?.configured)) return;
-  if (!confirm('Remove the Wudao source from DictFloat? Your original files outside Chrome are not changed.')) return;
+  const size = formatSize(wudaoSource.totalSize);
+  const approved = await confirmRisk({
+    title: `Remove “${wudaoSource.name || 'Wudao · Offline'}”?`,
+    message: 'This removes DictFloat’s stored Wudao offline data pack.',
+    impact: [
+      `${size} of local extension storage will be released.`,
+      'The four original files outside Chrome will not be deleted.',
+      'A recovery snapshot will preserve the source configuration, but not the binary data pack.'
+    ],
+    confirmLabel: 'Remove Wudao pack'
+  });
+  if (!approved) return;
   try {
+    await createRecoverySnapshot('Before removing Wudao offline pack');
     await deleteWudaoPack();
     await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
     wudaoSource = normalizeWudaoSource(null);
@@ -1318,7 +1558,7 @@ async function removeWudaoPack() {
     await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
     renderWudaoSource();
     renderSourceOrder();
-    status('Wudao offline pack removed.');
+    status('Wudao offline pack removed. Its source configuration is available in the latest recovery snapshot.');
   } catch (error) {
     status(`Unable to remove Wudao pack: ${error.message}`, true);
   }

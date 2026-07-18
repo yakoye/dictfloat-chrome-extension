@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.4.4</div>
+      <div class="version">v0.4.7</div>
     </header>
 
     <section class="card">
@@ -64,9 +64,11 @@
       <h2>Backup</h2>
       <p class="hint">Export editable entries and source settings.</p>
       <div class="actions"><button id="exportJson" type="button">Export all JSON</button><button id="exportCsv" type="button">Export all CSV</button><button class="danger" id="clearEntries" type="button">Clear all glossary entries</button></div>
+      <details class="recovery-details recovery-snapshots"><summary>Recovery snapshots</summary><div id="recoverySnapshotList" class="recovery-snapshot-list"></div></details>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
+  <dialog id="safetyDialog" class="safety-dialog" aria-labelledby="safetyDialogTitle"><div class="safety-dialog-card"><h2 id="safetyDialogTitle">Confirm change</h2><p id="safetyDialogMessage"></p><ul id="safetyDialogImpact"></ul><label id="safetyDialogInputWrap" hidden><span id="safetyDialogInputLabel"></span><input id="safetyDialogInput" type="text"></label><div class="actions"><button id="safetyDialogCancel" type="button">Cancel</button><button id="safetyDialogConfirm" class="danger" type="button">Continue</button></div></div></dialog>
 <script>
 window.confirm=()=>true; window.prompt=()=>null;
 const store={

@@ -200,3 +200,35 @@ input[type="checkbox"]:disabled { cursor:not-allowed; opacity:.45; }
   .library-connection-notice { border-color:#733153; background:#351a2b; color:#f9a8d4; }
   .library-connection-notice button { border-color:#8f3d68; background:#241424; color:#f9a8d4; }
 }
+
+
+/* Data safety: one explicit confirmation surface for destructive and overwrite actions. */
+.safety-dialog { width:min(460px, calc(100vw - 28px)); margin:auto; padding:0; border:0; background:transparent; color:#273449; }
+.safety-dialog::backdrop { background:rgba(15,23,42,.42); backdrop-filter:blur(2px); }
+.safety-dialog-card { padding:18px; border:1px solid #e4e9f1; border-radius:13px; background:#fff; box-shadow:0 24px 70px rgba(15,23,42,.30); }
+.safety-dialog-card h2 { margin:0 0 7px; font-size:15px; }
+.safety-dialog-message { margin:0; color:#526176; font-size:12px; line-height:1.6; }
+.safety-dialog-impact { display:grid; gap:4px; margin:12px 0 0; padding:9px 11px 9px 27px; border:1px solid #edf0f5; border-radius:8px; background:#fafbfe; color:#607087; font-size:11px; line-height:1.45; }
+.safety-dialog-input { display:grid; gap:6px; margin-top:13px; color:#4d5d73; font-size:12px; font-weight:650; }
+.safety-dialog-input code { margin:0 2px; color:#bd2460; }
+.safety-dialog-input input { width:100%; }
+.safety-dialog-actions { justify-content:flex-end; margin-top:16px; }
+.safety-dialog-actions .danger:disabled { cursor:not-allowed; opacity:.48; }
+.recovery-snapshots { margin-top:10px; }
+.recovery-snapshot-list { display:grid; gap:7px; margin-top:10px; }
+.recovery-snapshot { display:flex; align-items:center; gap:10px; min-width:0; padding:8px 9px; border:1px solid #e8edf3; border-radius:8px; background:#fbfcff; }
+.recovery-snapshot-info { flex:1; min-width:0; }
+.recovery-snapshot-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#39485f; font-size:12px; font-weight:650; }
+.recovery-snapshot-meta { margin-top:2px; color:#7b899c; font-size:11px; line-height:1.4; }
+.recovery-snapshot button { flex:0 0 auto; min-height:27px; padding:4px 8px; font-size:11px; }
+.recovery-snapshot-empty { padding:3px 0 0; color:#8795a9; font-size:12px; }
+@media (prefers-color-scheme: dark) {
+  .safety-dialog { color:#e7edf7; }
+  .safety-dialog-card { border-color:#33445d; background:#182235; box-shadow:0 24px 70px rgba(0,0,0,.50); }
+  .safety-dialog-message { color:#b9c5d5; }
+  .safety-dialog-impact { border-color:#304159; background:#141d2c; color:#abb9cd; }
+  .safety-dialog-input { color:#d1daea; }
+  .recovery-snapshot { border-color:#33445d; background:#172235; }
+  .recovery-snapshot-title { color:#e0e7f1; }
+  .recovery-snapshot-meta { color:#aab7c9; }
+}

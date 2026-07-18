@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.6';
+  const RUNTIME_VERSION = '0.4.7';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -16,6 +16,13 @@
   window.__DICTFLOAT_LOADED__ = true;
 
   const storage = chrome.storage.local;
+  const RECOVERY_SNAPSHOT_KEY = 'dictFloatRecoverySnapshots';
+  const RECOVERY_SNAPSHOT_LIMIT = 5;
+  const RECOVERY_STORAGE_KEYS = [
+    'dictFloatSettings', 'dictFloatEntries', 'dictFloatDictionaries',
+    'dictFloatMdictSources', 'dictFloatWudaoSource', 'dictFloatSourceOrder',
+    'dictFloatHistory', 'dictFloatPanelPosition', 'dictFloatCollapsedSources'
+  ];
   const DEFAULT_SETTINGS = {
     selectionMode: 'bubble',
     fontSize: 12,
@@ -56,7 +63,8 @@
     themeMedia: null,
     themeListener: null,
     dragCleanup: null,
-    selectionTimer: null
+    selectionTimer: null,
+    historyUndo: null
   };
 
   const instance = { version: RUNTIME_VERSION, token: INSTANCE_TOKEN, destroy: destroyInstance };
@@ -160,6 +168,8 @@
     document.removeEventListener('keydown', handleGlobalKeys, true);
     if (state.selectionTimer) clearTimeout(state.selectionTimer);
     state.selectionTimer = null;
+    if (state.historyUndo?.timer) clearTimeout(state.historyUndo.timer);
+    state.historyUndo = null;
     state.themeMedia?.removeEventListener?.('change', state.themeListener);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     chrome.storage.onChanged.removeListener(onStorageChanged);
@@ -470,6 +480,114 @@
     const input = state.mount?.querySelector('.dictfloat-search input');
     if (input) input.value = '';
     renderContentOnly();
+  }
+
+  // Small in-panel safety dialog. Used only for destructive operations in the
+  // floating window; search × stays immediate because it never deletes data.
+  function confirmInPanel(options = {}) {
+    if (!state.panel?.isConnected) return Promise.resolve(false);
+    state.panel.querySelector('.dictfloat-confirm-layer')?.remove();
+    const required = String(options.requireText || '');
+    const layer = el('div', 'dictfloat-confirm-layer');
+    const card = el('section', 'dictfloat-confirm-card');
+    const title = el('strong', 'dictfloat-confirm-title', options.title || 'Confirm change');
+    const message = el('div', 'dictfloat-confirm-message', options.message || 'Please review this change before continuing.');
+    card.append(title, message);
+    const details = Array.isArray(options.details) ? options.details.filter(Boolean) : [];
+    if (details.length) {
+      const list = el('ul', 'dictfloat-confirm-details');
+      details.forEach((item) => list.append(el('li', '', String(item))));
+      card.append(list);
+    }
+    let input = null;
+    if (required) {
+      const label = el('label', 'dictfloat-confirm-input');
+      label.append(document.createTextNode(`Type ${required} to continue.`));
+      input = document.createElement('input');
+      input.type = 'text';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      label.append(input);
+      card.append(label);
+    }
+    const actions = el('div', 'dictfloat-confirm-actions');
+    const cancel = el('button', '', 'Cancel');
+    cancel.type = 'button';
+    const approve = el('button', 'dictfloat-confirm-danger', options.confirmLabel || 'Continue');
+    approve.type = 'button';
+    approve.disabled = !!required;
+    actions.append(cancel, approve);
+    card.append(actions);
+    layer.append(card);
+    state.panel.append(layer);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (accepted) => {
+        if (settled) return;
+        settled = true;
+        layer.remove();
+        resolve(!!accepted);
+      };
+      const sync = () => { approve.disabled = required ? input.value.trim() !== required : false; };
+      input?.addEventListener('input', sync);
+      cancel.addEventListener('click', () => finish(false));
+      approve.addEventListener('click', () => { if (!approve.disabled) finish(true); });
+      layer.addEventListener('click', (event) => { if (event.target === layer) finish(false); });
+      setTimeout(() => (input || approve).focus(), 0);
+    });
+  }
+
+  async function createContentRecoverySnapshot(label) {
+    const data = await storage.get([...RECOVERY_STORAGE_KEYS, RECOVERY_SNAPSHOT_KEY]);
+    const current = Array.isArray(data[RECOVERY_SNAPSHOT_KEY]) ? data[RECOVERY_SNAPSHOT_KEY] : [];
+    const snapshot = {
+      id: crypto.randomUUID(),
+      label: String(label || 'Before a DictFloat change'),
+      createdAt: Date.now(),
+      data: {
+        format: 'dictfloat-backup', version: 1, exportedAt: new Date().toISOString(),
+        settings: data.dictFloatSettings || state.settings,
+        entries: Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : state.entries,
+        dictionaries: Array.isArray(data.dictFloatDictionaries) ? data.dictFloatDictionaries : state.dictionaries,
+        mdictSources: Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources : state.mdictSources,
+        wudaoSource: data.dictFloatWudaoSource || state.wudaoSource,
+        sourceOrder: Array.isArray(data.dictFloatSourceOrder) ? data.dictFloatSourceOrder : state.sourceOrder,
+        history: Array.isArray(data.dictFloatHistory) ? data.dictFloatHistory : state.history,
+        panelPosition: data.dictFloatPanelPosition || state.position,
+        collapsedSources: Array.isArray(data.dictFloatCollapsedSources) ? data.dictFloatCollapsedSources : [...state.collapsedSources],
+        note: 'Recovery snapshot: local MDX/MDD and Wudao binary files are not copied.'
+      }
+    };
+    const valid = current.filter((item) => item && item.data).sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    await storage.set({ [RECOVERY_SNAPSHOT_KEY]: [snapshot, ...valid].slice(0, RECOVERY_SNAPSHOT_LIMIT) });
+  }
+
+  function showHistoryUndo(previousHistory) {
+    state.historyUndo?.timer && clearTimeout(state.historyUndo.timer);
+    state.panel?.querySelector('.dictfloat-undo-bar')?.remove();
+    const bar = el('div', 'dictfloat-undo-bar', 'History cleared.');
+    const undo = el('button', '', 'Undo');
+    undo.type = 'button';
+    const restore = async () => {
+      if (!state.historyUndo) return;
+      const history = state.historyUndo.history;
+      state.historyUndo = null;
+      bar.remove();
+      state.history = history;
+      await storage.set({ dictFloatHistory: history });
+      renderContentOnly();
+    };
+    undo.addEventListener('click', restore);
+    bar.append(undo);
+    state.panel?.append(bar);
+    const timer = setTimeout(() => {
+      if (state.historyUndo?.timer === timer) {
+        state.historyUndo = null;
+        bar.remove();
+      }
+    }, 15000);
+    state.historyUndo = { history: previousHistory, timer };
   }
 
   function tabs() {
@@ -1094,9 +1212,23 @@
     clear.title = 'Clear history';
     clear.setAttribute('aria-label', 'Clear history');
     clear.addEventListener('click', async () => {
+      const count = state.history.length;
+      const approved = await confirmInPanel({
+        title: 'Clear query history?',
+        message: 'This removes recent lookups from DictFloat.',
+        details: [
+          `${count} ${count === 1 ? 'lookup' : 'lookups'} will be cleared.`,
+          'Glossaries, MDX/MDD dictionaries, Wudao, and settings are not affected.',
+          'You can undo this change for 15 seconds.'
+        ],
+        confirmLabel: 'Clear history'
+      });
+      if (!approved) return;
+      const previousHistory = state.history.map((item) => ({ ...item }));
       state.history = [];
       await storage.set({ dictFloatHistory: [] });
       renderContentOnly();
+      showHistoryUndo(previousHistory);
     });
     head.append(clear);
     box.append(head);
@@ -1193,7 +1325,14 @@
       const remove = el('button', 'dictfloat-delete-entry', 'Delete');
       remove.type = 'button';
       remove.addEventListener('click', async () => {
-        if (!confirm(`Delete “${editing.term}”?`)) return;
+        const approved = await confirmInPanel({
+          title: `Delete “${editing.term}”?`,
+          message: 'This removes this editable entry from its glossary.',
+          details: ['A small recovery snapshot will be created first.', 'Linked dictionaries and other glossary entries are not affected.'],
+          confirmLabel: 'Delete entry'
+        });
+        if (!approved) return;
+        await createContentRecoverySnapshot(`Before deleting entry: ${editing.term}`);
         state.entries = state.entries.filter((item) => item.id !== editing.id);
         state.history = state.history.filter((item) => item.id !== editing.id);
         await storage.set({ dictFloatEntries: state.entries.map(normalizeEntry), dictFloatHistory: state.history });

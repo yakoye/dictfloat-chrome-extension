@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.4.4</div>
+      <div class="version">v0.4.7</div>
     </header>
 
     <section class="card">
@@ -55,7 +55,7 @@
       </div>
       <div id="libraryConnectionNotice" class="library-connection-notice" hidden>
         <span id="libraryConnectionNoticeText"></span>
-        <button id="reconnectDictionaryRootInline" type="button">Reconnect root</button>
+        <button id="reconnectDictionaryRootInline" type="button">Find missing</button>
       </div>
       <div id="librarySourceList" class="dictionary-list library-source-list"></div>
       <div class="library-progress">
@@ -72,7 +72,6 @@
         </div>
       </div>
       <div class="actions recovery-actions">
-        <button id="reconnectDictionaryRoot" type="button">Reconnect dictionary root</button>
         <button id="exportBackup" type="button">Export backup</button>
         <label class="file-btn">Import backup<input id="importBackup" type="file" accept=".json,application/json"></label>
       </div>
@@ -84,9 +83,30 @@
           <button class="danger" id="clearEntries" type="button">Clear all glossary entries</button>
         </div>
       </details>
+      <details class="recovery-details recovery-snapshots">
+        <summary>Recovery snapshots</summary>
+        <p class="hint">DictFloat keeps the latest five small snapshots before high-impact changes. MDX / MDD and Wudao data files are never copied.</p>
+        <div id="recoverySnapshotList" class="recovery-snapshot-list"></div>
+      </details>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
+
+  <dialog id="safetyDialog" class="safety-dialog" aria-labelledby="safetyDialogTitle">
+    <div class="safety-dialog-card">
+      <h2 id="safetyDialogTitle">Confirm change</h2>
+      <p id="safetyDialogMessage" class="safety-dialog-message"></p>
+      <ul id="safetyDialogImpact" class="safety-dialog-impact"></ul>
+      <label id="safetyDialogInputWrap" class="safety-dialog-input" hidden>
+        <span id="safetyDialogInputLabel"></span>
+        <input id="safetyDialogInput" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="actions safety-dialog-actions">
+        <button id="safetyDialogCancel" type="button">Cancel</button>
+        <button id="safetyDialogConfirm" class="danger" type="button">Continue</button>
+      </div>
+    </div>
+  </dialog>
   <script src="mdict-db.js"></script>
     <script src="options.js"></script>
 </body>

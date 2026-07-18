@@ -27,6 +27,7 @@ button { -webkit-appearance: none; appearance: none; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
   border: 1px solid #d9e1ec;
   border-radius: 14px;
   background: #ffffff;
@@ -670,3 +671,50 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-mdx-error-line .dictfloat-online-status { min-width:0; }
 .dictfloat-mdx-reconnect { flex:0 0 auto; min-height:26px; padding:4px 8px; border:1px solid var(--df-border); border-radius:7px; background:var(--df-panel); color:var(--df-muted); font:inherit; font-size:11px; cursor:pointer; }
 .dictfloat-mdx-reconnect:hover { border-color:var(--df-accent); color:var(--df-accent); }
+
+
+/* Destructive actions stay in the one DictFloat window and require an explicit
+   acknowledgement. They never create a second floating panel. */
+.dictfloat-confirm-layer {
+  position:absolute;
+  inset:0;
+  z-index:20;
+  display:grid;
+  place-items:center;
+  padding:12px;
+  background:rgba(248,250,252,.74);
+  backdrop-filter:blur(2px);
+}
+.dark .dictfloat-confirm-layer { background:rgba(10,16,27,.72); }
+.dictfloat-confirm-card {
+  width:100%;
+  max-width:330px;
+  padding:13px;
+  border:1px solid #e0e7f0;
+  border-radius:10px;
+  background:#fff;
+  box-shadow:0 16px 34px rgba(15,23,42,.20);
+  color:#273449;
+  font-size:11px;
+  line-height:1.5;
+}
+.dark .dictfloat-confirm-card { border-color:#3a4b64; background:#192438; color:#e6edf8; box-shadow:0 16px 34px rgba(0,0,0,.38); }
+.dictfloat-confirm-title { display:block; margin-bottom:5px; font-size:12px; }
+.dictfloat-confirm-message { color:#5f6f84; }
+.dark .dictfloat-confirm-message { color:#b9c7da; }
+.dictfloat-confirm-details { display:grid; gap:3px; margin:9px 0 0; padding:7px 8px 7px 22px; border:1px solid #edf1f5; border-radius:7px; background:#fafbfe; color:#738197; font-size:10px; }
+.dark .dictfloat-confirm-details { border-color:#314159; background:#111b2b; color:#aab9cd; }
+.dictfloat-confirm-input { display:grid; gap:4px; margin-top:9px; color:#59697f; font-size:10px; font-weight:650; }
+.dark .dictfloat-confirm-input { color:#c6d2e4; }
+.dictfloat-confirm-input input { width:100%; height:27px; margin:0; padding:4px 6px; border:1px solid #d8e1ec; border-radius:6px; outline:0; background:#fff; color:#253147; font-size:11px; }
+.dark .dictfloat-confirm-input input { border-color:#3b4d67; background:#101a2a; color:#e6edf8; }
+.dictfloat-confirm-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:11px; }
+.dictfloat-confirm-actions button { min-height:24px; margin:0; padding:4px 8px; border:1px solid #d8e1ec; border-radius:6px; background:#fff; color:#56667d; cursor:pointer; font-size:10px; }
+.dark .dictfloat-confirm-actions button { border-color:#3b4d67; background:#1b293d; color:#cbd6e6; }
+.dictfloat-confirm-actions .dictfloat-confirm-danger { border-color:#f0c2bf; color:#bd2460; }
+.dark .dictfloat-confirm-actions .dictfloat-confirm-danger { border-color:#764458; color:#f5a7cd; }
+.dictfloat-confirm-actions .dictfloat-confirm-danger:disabled { cursor:not-allowed; opacity:.5; }
+.dictfloat-undo-bar { position:absolute; right:10px; bottom:44px; z-index:15; display:flex; align-items:center; gap:7px; padding:6px 8px; border:1px solid #dbe3ed; border-radius:7px; background:#fff; box-shadow:0 8px 20px rgba(15,23,42,.14); color:#59697f; font-size:10px; }
+.dark .dictfloat-undo-bar { border-color:#3b4d67; background:#1a273a; color:#c9d4e5; }
+.dictfloat-undo-bar button { min-height:22px; margin:0; padding:3px 7px; border:0; border-radius:5px; background:#fff0f6; color:#c0266c; cursor:pointer; font-size:10px; font-weight:700; }
+.dark .dictfloat-undo-bar button { background:#3a1c2e; color:#f7add0; }

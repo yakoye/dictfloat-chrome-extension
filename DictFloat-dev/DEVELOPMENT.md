@@ -1,11 +1,5 @@
 # DictFloat development update workflow
 
-## v0.4.6: linked MDX health
-
-MDX metadata in Settings and the actual local `FileSystemFileHandle` are stored separately. After any extension removal, ID change, profile reset, or lost file permission, use **Reconnect dictionary root** once. The library will now show this condition explicitly instead of leaving stale sources marked ready.
-
-# DictFloat Development Update Guide / DictFloat 开发更新指南
-
 ## One fixed extension folder / 固定一个开发目录
 
 Use one permanent directory for Chrome's unpacked extension, for example:
@@ -26,12 +20,16 @@ Load it once from `chrome://extensions`.
 
 Do not click **Remove** unless you intentionally want to uninstall the extension and erase its local Chrome data.
 
-## Safe recovery / 安全恢复
+## Safe data workflow / 数据安全
 
-Before large debugging changes, export a backup from:
+- Before any high-impact Settings change, DictFloat creates one of five rolling local recovery snapshots.
+- Keep an exported backup before major development work; snapshots are deliberately small and do not contain MDX/MDD or Wudao binary files.
+- In Settings, use **Find missing** only when a previously connected dictionary is marked missing. It relinks only existing missing sources; it never imports additional dictionaries merely because they live under the selected parent directory.
 
-```text
-DictFloat Settings → Backup & recovery → Export backup
-```
+## If an extension removal happened / 如果误删扩展
 
-The backup contains settings and editable data. It does not redistribute your MDX/MDD or Wudao files. After restore, use **Reconnect dictionary root** and choose your common dictionary directory.
+1. Load DictFloat again from the same fixed folder.
+2. Import a previously exported backup.
+3. Dictionary Library will show missing linked sources.
+4. Click **Find missing** and choose the common dictionary directory only when needed.
+5. DictFloat matches only the dictionaries already recorded in your backup. Other folders are ignored.
