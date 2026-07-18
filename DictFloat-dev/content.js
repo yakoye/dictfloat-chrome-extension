@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.2'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.3'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -1988,13 +1988,16 @@
     bubble.title = `Look up “${text.slice(0, 42)}”`;
     bubble.setAttribute('aria-label', 'Look up selected text');
 
-    const badge = el('span', 'dictfloat-bubble-badge', 'D');
+    const badge = el('img', 'dictfloat-bubble-badge');
+    badge.src = chrome.runtime.getURL('icons/icon32.png');
+    badge.alt = '';
+    badge.decoding = 'async';
     const stem = el('span', 'dictfloat-bubble-stem');
     const dot = el('span', 'dictfloat-bubble-dot');
     bubble.append(badge, stem, dot);
 
-    const size = { width: 56, height: 94 };
-    const position = chooseBubblePosition(rect, size, 10, 8);
+    const size = { width: 36, height: 56 };
+    const position = chooseBubblePosition(rect, size, 8, 8);
     bubble.dataset.anchor = position.anchor;
     bubble.style.cssText = `position:fixed;left:${position.left}px;top:${position.top}px;z-index:2147483647;pointer-events:auto;`;
     bubble.addEventListener('mousedown', (event) => event.preventDefault());
@@ -2004,8 +2007,8 @@
   }
 
   function chooseBubblePosition(rect, size, gap, edge) {
-    const width = Number(size?.width || 56);
-    const height = Number(size?.height || 94);
+    const width = Number(size?.width || 36);
+    const height = Number(size?.height || 56);
     const raw = [
       { anchor: 'above-right', left: rect.right - width + 4, top: rect.top - height - gap },
       { anchor: 'below-right', left: rect.right - width + 4, top: rect.bottom + gap },
@@ -2035,16 +2038,16 @@
 
   function bubbleAnchorPenalty(candidate, rect) {
     let penalty = 0;
-    if (candidate.anchor.startsWith('above') && rect.top < 120) penalty += 28;
-    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 120) penalty += 28;
-    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 88) penalty += 12;
-    if (candidate.anchor.endsWith('left') && rect.left < 88) penalty += 12;
+    if (candidate.anchor.startsWith('above') && rect.top < 84) penalty += 22;
+    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 84) penalty += 22;
+    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 56) penalty += 8;
+    if (candidate.anchor.endsWith('left') && rect.left < 56) penalty += 8;
     return penalty;
   }
 
   function bubbleCollisionScore(candidate) {
-    const width = Number(candidate.width || 56);
-    const height = Number(candidate.height || 94);
+    const width = Number(candidate.width || 36);
+    const height = Number(candidate.height || 56);
     const points = [
       [candidate.left + width / 2, candidate.top + 9],
       [candidate.left + width / 2, candidate.top + height / 2],
