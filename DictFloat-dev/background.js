@@ -136,7 +136,7 @@ function defaultSettings() {
     panelWidth: 380,
     theme: 'system',
     onlineLookup: true,
-    accent: 'rose'
+    accent: 'green'
   };
 }
 

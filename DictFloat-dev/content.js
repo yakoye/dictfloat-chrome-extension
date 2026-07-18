@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.0'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.1'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -32,7 +32,7 @@
     panelWidth: 380,
     theme: 'system',
     onlineLookup: true,
-    accent: 'rose'
+    accent: 'green'
   };
 
   const state = {
@@ -337,7 +337,7 @@
   }
 
   function applyAccent() {
-    const accent = ['rose', 'green', 'blue'].includes(state.settings.accent) ? state.settings.accent : 'rose';
+    const accent = ['rose', 'green', 'blue'].includes(state.settings.accent) ? state.settings.accent : 'green';
     if (state.host) state.host.dataset.accent = accent;
   }
 
@@ -1983,17 +1983,91 @@
     if (!isCurrentInstance()) return;
     await ensureRoot(false);
     removeBubble();
-    const bubble = el('button', 'dictfloat-bubble', '⌕');
-    bubble.type = 'button'; bubble.title = `Look up “${text.slice(0, 42)}”`; bubble.setAttribute('aria-label', 'Look up selected text');
-    const position = chooseBubblePosition(rect, 26, 7, 6);
+    const bubble = el('button', 'dictfloat-bubble');
+    bubble.type = 'button';
+    bubble.title = `Look up “${text.slice(0, 42)}”`;
+    bubble.setAttribute('aria-label', 'Look up selected text');
+
+    const badge = el('span', 'dictfloat-bubble-badge', 'D');
+    const stem = el('span', 'dictfloat-bubble-stem');
+    const dot = el('span', 'dictfloat-bubble-dot');
+    bubble.append(badge, stem, dot);
+
+    const size = { width: 40, height: 66 };
+    const position = chooseBubblePosition(rect, size, 8, 8);
     bubble.dataset.anchor = position.anchor;
     bubble.style.cssText = `position:fixed;left:${position.left}px;top:${position.top}px;z-index:2147483647;pointer-events:auto;`;
     bubble.addEventListener('mousedown', (event) => event.preventDefault());
     bubble.addEventListener('click', () => { removeBubble(); void openAndLookup(text); });
-    state.mount.append(bubble); state.bubble = bubble;
+    state.mount.append(bubble);
+    state.bubble = bubble;
   }
-  function chooseBubblePosition(rect,size,gap,edge){const raw=[{anchor:'above-right',left:rect.right-size,top:rect.top-size-gap},{anchor:'below-right',left:rect.right-size,top:rect.bottom+gap},{anchor:'above-left',left:rect.left,top:rect.top-size-gap},{anchor:'below-left',left:rect.left,top:rect.bottom+gap}];const candidates=raw.map((item)=>{const overflow=(item.left<edge?30:0)+(item.top<edge?30:0)+(item.left+size>window.innerWidth-edge?30:0)+(item.top+size>window.innerHeight-edge?30:0);return {...item,left:Math.min(window.innerWidth-size-edge,Math.max(edge,item.left)),top:Math.min(window.innerHeight-size-edge,Math.max(edge,item.top)),overflow};});return candidates.sort((a,b)=>(a.overflow+bubbleCollisionScore(a,size))-(b.overflow+bubbleCollisionScore(b,size)))[0];}
-  function bubbleCollisionScore(candidate,size){const points=[[candidate.left+size/2,candidate.top+size/2],[candidate.left+4,candidate.top+4],[candidate.left+size-4,candidate.top+size-4]];let score=0;for(const [x,y] of points){const nodes=document.elementsFromPoint?.(x,y)||[];for(const node of nodes.slice(0,6)){if(!(node instanceof Element)||state.host?.contains(node)||node===document.documentElement||node===document.body)continue;const style=getComputedStyle(node);const z=Number.parseInt(style.zIndex,10);const floating=['fixed','sticky'].includes(style.position)||(Number.isFinite(z)&&z>=1000);const semantic=/(?:menu|toolbar|popover|tooltip|selection|composer)/i.test(`${node.getAttribute('role')||''} ${node.className||''}`);if(floating||semantic)score+=10;}}return score;}
+
+  function chooseBubblePosition(rect, size, gap, edge) {
+    const width = Number(size?.width || 40);
+    const height = Number(size?.height || 66);
+    const raw = [
+      { anchor: 'above-right', left: rect.right - width + 4, top: rect.top - height - gap },
+      { anchor: 'below-right', left: rect.right - width + 4, top: rect.bottom + gap },
+      { anchor: 'above-left', left: rect.left - 4, top: rect.top - height - gap },
+      { anchor: 'below-left', left: rect.left - 4, top: rect.bottom + gap }
+    ];
+    const candidates = raw.map((item) => {
+      const overflow = (item.left < edge ? 30 : 0)
+        + (item.top < edge ? 30 : 0)
+        + (item.left + width > window.innerWidth - edge ? 30 : 0)
+        + (item.top + height > window.innerHeight - edge ? 30 : 0);
+      return {
+        ...item,
+        width,
+        height,
+        left: Math.min(window.innerWidth - width - edge, Math.max(edge, item.left)),
+        top: Math.min(window.innerHeight - height - edge, Math.max(edge, item.top)),
+        overflow
+      };
+    });
+    return candidates.sort((a, b) => {
+      const aScore = (a.overflow * 100) + bubbleCollisionScore(a) + bubbleAnchorPenalty(a, rect);
+      const bScore = (b.overflow * 100) + bubbleCollisionScore(b) + bubbleAnchorPenalty(b, rect);
+      return aScore - bScore;
+    })[0];
+  }
+
+  function bubbleAnchorPenalty(candidate, rect) {
+    let penalty = 0;
+    if (candidate.anchor.startsWith('above') && rect.top < 90) penalty += 18;
+    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 90) penalty += 18;
+    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 74) penalty += 10;
+    if (candidate.anchor.endsWith('left') && rect.left < 74) penalty += 10;
+    return penalty;
+  }
+
+  function bubbleCollisionScore(candidate) {
+    const width = Number(candidate.width || 40);
+    const height = Number(candidate.height || 66);
+    const points = [
+      [candidate.left + width / 2, candidate.top + 9],
+      [candidate.left + width / 2, candidate.top + height / 2],
+      [candidate.left + width / 2, candidate.top + height - 9],
+      [candidate.left + 8, candidate.top + 8],
+      [candidate.left + width - 8, candidate.top + 8],
+      [candidate.left + 8, candidate.top + height - 8],
+      [candidate.left + width - 8, candidate.top + height - 8]
+    ];
+    let score = 0;
+    for (const [x, y] of points) {
+      const nodes = document.elementsFromPoint?.(x, y) || [];
+      for (const node of nodes.slice(0, 8)) {
+        if (!(node instanceof Element) || state.host?.contains(node) || node === document.documentElement || node === document.body) continue;
+        const style = getComputedStyle(node);
+        const z = Number.parseInt(style.zIndex, 10);
+        const floating = ['fixed', 'sticky'].includes(style.position) || (Number.isFinite(z) && z >= 1000);
+        const semantic = /(?:menu|toolbar|popover|tooltip|selection|composer|chatgpt|assistant|copy|edit)/i.test(`${node.getAttribute('role') || ''} ${node.className || ''} ${node.id || ''}`);
+        if (floating || semantic) score += 10;
+      }
+    }
+    return score;
+  }
 
   function removeBubble() {
     hideFromTopLayer(state.bubble);

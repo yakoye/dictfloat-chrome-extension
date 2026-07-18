@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'rose' };
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green' };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -112,7 +112,7 @@ function closeAddSourceMenu() {
 }
 
 function applyAccent(accent) {
-  document.body.dataset.accent = ['rose', 'green', 'blue'].includes(accent) ? accent : 'rose';
+  document.body.dataset.accent = ['rose', 'green', 'blue'].includes(accent) ? accent : 'green';
 }
 
 async function saveSettings() {
