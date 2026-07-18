@@ -10,7 +10,7 @@
     query: '',
     view: 'lookup',
     selectedId: null,
-    settings: { selectionMode: 'bubble', compactMode: true, fontSize: 12, panelWidth: 380, showPhonetic: true, theme: 'light' },
+    settings: { selectionMode: 'bubble', compactMode: true, fontSize: 12, panelWidth: 380, showPhonetic: true, theme: 'system' },
     entries: [],
     history: [],
     position: null
@@ -28,6 +28,11 @@
     state.position = data.dictFloatPanelPosition || null;
     document.addEventListener('mouseup', handleSelection, true);
     document.addEventListener('keydown', handleGlobalKeys, true);
+    // Chrome exposes its light/dark preference through prefers-color-scheme.
+    // Re-render an already-open panel immediately when Chrome/OS changes mode.
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (state.settings.theme === 'system' && state.root?.isConnected) render();
+    });
   }
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -97,12 +102,18 @@
       return;
     }
 
-    const panel = el('section', `dictfloat-panel ${state.settings.theme === 'dark' ? 'dark' : ''}`);
+    const panel = el('section', `dictfloat-panel ${isDarkTheme() ? 'dark' : ''}`);
     state.panel = panel;
     panel.style.cssText = `position:fixed;left:${pos.left}px;top:${pos.top}px;z-index:2147483646;width:${Math.min(Math.max(+state.settings.panelWidth || 380, 320), 520)}px;font-size:${Math.min(Math.max(+state.settings.fontSize || 12, 10), 15)}px;`;
     panel.append(header(), searchBox(), tabs(), content(), footer());
     state.root.appendChild(panel);
     makeDraggable(panel, panel.querySelector('.dictfloat-head'));
+  }
+
+  function isDarkTheme() {
+    if (state.settings.theme === 'dark') return true;
+    if (state.settings.theme === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
   function header() {

@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const defaults = { selectionMode:'bubble', fontSize:12, panelWidth:380, theme:'light' };
+const defaults = { selectionMode:'bubble', fontSize:12, panelWidth:380, theme:'system' };
 let entries=[];
 
 init();

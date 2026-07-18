@@ -1,4 +1,4 @@
-## v0.1.3
+## v0.1.4
 - Replaced the redundant search-side key hint with an × clear button.
 
 # DictFloat v0.1.2
@@ -47,3 +47,9 @@ MDX / MDD parsing is **not implemented in v0.1.2**. Supporting MDX reliably requ
 
 - A no-result search now provides a one-click **Add current term** action.
 - The Add form pre-fills the last searched term.
+
+
+## v0.1.4
+
+- Theme now defaults to **Follow Chrome**. The floating panel and Settings page automatically switch when Chrome / the operating system changes between light and dark mode.
+- Manual Light and Dark overrides remain available in Settings.

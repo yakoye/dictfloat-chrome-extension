@@ -10,6 +10,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 
   const existing = await chrome.storage.local.get(['dictFloatEntries', 'dictFloatSettings']);
+  // v0.1.4: new installs follow Chrome automatically. Upgrade old default-light
+  // installs as well; users can still choose Light or Dark in Settings.
+  if (existing.dictFloatSettings?.theme === 'light') {
+    await chrome.storage.local.set({
+      dictFloatSettings: { ...existing.dictFloatSettings, theme: 'system' }
+    });
+    existing.dictFloatSettings.theme = 'system';
+  }
   if (!Array.isArray(existing.dictFloatEntries)) {
     await chrome.storage.local.set({ dictFloatEntries: seedEntries() });
   }
@@ -21,7 +29,7 @@ chrome.runtime.onInstalled.addListener(async () => {
         fontSize: 12,
         panelWidth: 380,
         showPhonetic: true,
-        theme: 'light'
+        theme: 'system'
       }
     });
   }

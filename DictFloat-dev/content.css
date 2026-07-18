@@ -58,3 +58,6 @@
 .dictfloat-add-current { margin-top: 10px; border: 1px solid rgba(244,114,182,.42); border-radius: 7px; color: #be185d; background: #fff1f7; padding: 5px 8px; font: inherit; font-size: 11px; cursor: pointer; }
 .dictfloat-add-current:hover { background: #fce7f3; border-color: #f472b6; }
 .dark .dictfloat-add-current { color: #fbcfe8; background: rgba(236,72,153,.14); border-color: rgba(244,114,182,.38); }
+
+/* System theme uses the same class as the explicit dark theme; the class is
+   selected by content.js from Chrome's prefers-color-scheme media query. */
