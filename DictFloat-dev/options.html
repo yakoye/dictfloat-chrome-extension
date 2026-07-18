@@ -10,7 +10,7 @@
   <main class="shell">
     <header>
       <div class="brand"><span></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.2.2</div>
+      <div class="version">v0.2.3</div>
     </header>
 
     <section class="card">
@@ -21,10 +21,19 @@
 
     <section class="card">
       <h2>Floating window</h2>
-      <div class="grid">
-        <label>Font size <input id="fontSize" type="number" min="10" max="15" step="1"> <small>px</small></label>
-        <label>Panel width <input id="panelWidth" type="number" min="320" max="520" step="10"> <small>px</small></label>
-        <label>Theme <select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <div class="grid window-grid">
+        <label class="field">
+          <span>Font size</span>
+          <span class="input-with-unit"><input id="fontSize" type="number" min="10" max="15" step="1"><small>px</small></span>
+        </label>
+        <label class="field">
+          <span>Panel width</span>
+          <span class="input-with-unit"><input id="panelWidth" type="number" min="320" max="520" step="10"><small>px</small></span>
+        </label>
+        <label class="field">
+          <span>Theme</span>
+          <select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select>
+        </label>
       </div>
       <p class="hint">Light mode now uses an opaque white panel, so it stays white even when Chrome and the webpage are dark.</p>
     </section>
@@ -32,7 +41,7 @@
     <section class="card">
       <h2>Online lookup</h2>
       <p class="hint">Use public online dictionary and translation services when local entries do not cover the query. No API key is required in this version.</p>
-      <label class="row"><span>Search online after Enter / selection lookup</span><input id="onlineLookup" type="checkbox"></label>
+      <label class="toggle-row"><span>Search online after Enter / selection lookup</span><input id="onlineLookup" type="checkbox"></label>
       <p class="hint">Only the word or phrase you actively query is sent to an online provider. Local glossaries and page content stay on your device.</p>
     </section>
 
@@ -48,9 +57,8 @@
       <p id="status" class="status"></p>
     </section>
 
-    <section class="card muted">
-      <h2>MDX / MDD dictionaries</h2>
-      <p>Planned for v0.3. This v0.2.2 update completes the multi-glossary foundation that MDX / MDD dictionaries will use: separate sources, enable / disable controls, and glossary-aware saving.</p>
+    <section class="card muted mdict-status">
+      <div class="section-title"><div><h2>MDX / MDD dictionaries</h2><p>v0.3 is in development. DictFloat now keeps glossary sources separate, so imported dictionaries will be managed independently from your own entries.</p></div><span class="status-chip">In development</span></div>
     </section>
   </main>
   <script src="options.js"></script>
