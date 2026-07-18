@@ -13,6 +13,150 @@
 
 ---
 
+## DictFloat v0.6.8
+
+### 本次讨论定稿
+
+本次重点调整查词窗口里的快速开关：
+
+1. 去掉页脚原来的 `Online: On / Off` 单独按钮。
+2. 在查词页面底部增加一组更直接的快速开关。
+3. `Online` 默认勾选，可以在查词界面直接开关。
+4. `AI` 显示 Settings 中已经添加的 AI Providers。
+5. AI Provider 默认不勾选；用户点击某一个 AI 编号后，立即对当前输入 / 当前划选句子执行该 AI。
+6. 字典源也放到页脚快速开关里，使用编号展示，避免占用太多空间。
+7. 所有快速开关保持小胶囊样式，并支持横向滚动，避免窗口变高太多。
+
+### v0.6.8 已实现内容
+
+#### 1. 查词页脚改为快速开关条
+
+页脚结构调整为：
+
+```text
+⚙ Settings
+词典: ✅1 ✅2 ✅3 ...
+✅Online  AI: ☐1 ☐2 ☐3 ...
+```
+
+说明：
+
+- `词典` 编号对应当前已配置的本地词库、Wudao、MDX/MDD 源。
+- `Online` 对应在线兜底查询。
+- `AI` 编号对应 Settings 中添加的 AI Providers。
+
+#### 2. Online 可在查词界面直接开关
+
+原来的 `Online: On` 按钮改为：
+
+```text
+✅Online
+☐Online
+```
+
+点击后会直接切换 `state.settings.onlineLookup` 并保存到 `dictFloatSettings`。
+
+当前已有查询时：
+
+- 打开 Online：立即开始在线查询。
+- 关闭 Online：清除当前 Online 结果并隐藏 Online 区块。
+
+#### 3. AI Provider 改为查词界面手动触发
+
+v0.6.7 之前，AI Provider 启用后可能会跟随句子翻译自动执行。
+
+v0.6.8 改为：
+
+- Settings 中添加几个 AI Provider，查词界面就显示几个编号。
+- 默认全部不勾选。
+- 点击 `AI: ☐1` 后，变为 `AI: ✅1`，并立即对当前 query 执行第 1 个 AI Provider。
+- 再次点击取消勾选，并移除该 Provider 当前结果卡片。
+- 切换新查询时，AI 勾选状态自动重置为未勾选。
+
+这样避免每次划一句话都自动跑多个 AI，使用上更可控。
+
+#### 4. 字典源快速开关
+
+`词典:` 行显示所有查词源中的本地类来源：
+
+- 本地 Glossary
+- Wudao Offline
+- MDX/MDD linked dictionaries
+
+点击编号可以直接启用 / 禁用对应源，并保存到对应 storage：
+
+```text
+dictFloatDictionaries
+dictFloatWudaoSource
+dictFloatMdictSources
+```
+
+当前 query 已存在时：
+
+- 本地词库切换后立即刷新显示。
+- Wudao / MDX 源打开后会对当前 query 发起对应查询。
+- 关闭后会隐藏当前结果。
+
+#### 5. Sentence translation 与 AI 结果合并
+
+为支持“点哪个 AI 就追加哪个结果”，`runSentenceTranslation()` 做了合并逻辑：
+
+- 自动句子翻译仍按已启用翻译源执行。
+- 手动点击 AI Provider 时，只追加或刷新对应 AI 卡片。
+- 不再把已有翻译结果全部清空。
+- Retry 单个 Provider 时也只刷新对应 Provider。
+
+#### 6. UI 样式
+
+新增小胶囊样式：
+
+```text
+dictfloat-quick-footer
+dictfloat-footer-row
+dictfloat-quick-row
+dictfloat-quick-label
+dictfloat-quick-chip
+dictfloat-ai-chip
+```
+
+特性：
+
+- 小尺寸。
+- 横向滚动。
+- 已启用状态使用绿色 accent。
+- 深色模式适配。
+
+### v0.6.8 代码改动文件
+
+```text
+content.js
+content.css
+manifest.json
+options.html
+next_develop_plan.md
+```
+
+### v0.6.8 检查记录
+
+执行检查：
+
+```text
+node --check content.js
+python3 -m json.tool manifest.json
+```
+
+### 下一版 v0.6.9 规划
+
+建议下一版继续优化：
+
+1. 快速开关显示真实名称的 tooltip，目前先用编号保持简洁。
+2. 允许用户在 Settings 中选择是否显示“词典”快速开关。
+3. 允许 AI 快速开关选择“仅本次查询”或“本次会话保持勾选”。
+4. 支持把常用 AI Provider 固定成一个更明显的按钮，例如 `AI 精析`。
+5. 检查页脚在 320px 窄宽度下的拥挤情况。
+
+---
+
 ## DictFloat v0.6.7
 
 ### 本次讨论定稿
