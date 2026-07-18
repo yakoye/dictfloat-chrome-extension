@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.12'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.13'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -858,16 +858,16 @@
   }
 
   function appendGlossarySection(box, source, entries) {
-    // Use the queried entry as the left-side title and the glossary name as
-    // the right-side source, exactly like Wudao / Online / MDX sections.
-    // The old layout reversed these two and made a lookup for MPS read as
-    // “PCIe Starter  MPS”, which was inconsistent and visually misleading.
+    // A multi-match list is grouped by its dictionary once. Repeating the
+    // typed query in the header adds noise, so the header becomes
+    // “DictFloat Glossary · 5 matches”; each row then carries the real term.
     const primary = selectPrimaryGlossaryEntry(entries, state.query);
+    const multiple = entries.length > 1;
     const section = createSourceSection({
       key: source.key,
-      term: primary?.term || state.query,
-      detail: entries.length === 1 ? formatGlossaryHeaderDetail(primary) : `${entries.length} matches`,
-      badge: source.name,
+      term: multiple ? source.name : (primary?.term || state.query),
+      detail: multiple ? `${entries.length} matches` : '',
+      badge: multiple ? '' : source.name,
       tone: 'local'
     });
     if (entries.length === 1 && primary) section.body.append(glossaryPreviewItem(primary));
@@ -880,10 +880,8 @@
     return entries.find((entry) => String(entry.term || '').trim().toLocaleLowerCase() === query) || entries[0] || null;
   }
 
-  function formatGlossaryHeaderDetail(entry) {
-    if (!entry) return '';
-    if (entry.aliases?.length) return entry.aliases[0];
-    return entry.chinese || '';
+  function primaryAlias(entry) {
+    return String(entry?.aliases?.[0] || '').trim();
   }
 
   function glossaryPreviewItem(entry) {
@@ -891,14 +889,14 @@
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.title = 'Open and edit this glossary entry';
-    const summary = el('div', 'dictfloat-result-summary');
-    if (entry.aliases?.length) summary.append(el('span', 'dictfloat-result-aliases', entry.aliases.join(' · ')));
-    if (entry.chinese) {
-      if (entry.aliases?.length) summary.append(document.createTextNode(' '));
-      summary.append(el('span', 'dictfloat-result-chinese', entry.chinese));
-    }
-    if (summary.childNodes.length) item.append(summary);
+
+    // Keep the compact preview to two information lines: Chinese first,
+    // then one representative alias. Full aliases remain available in detail.
+    if (entry.chinese) item.append(el('div', 'dictfloat-preview-chinese', entry.chinese));
+    const alias = primaryAlias(entry);
+    if (alias) item.append(el('div', 'dictfloat-preview-alias', alias));
     if (entry.definition) item.append(el('div', 'dictfloat-glossary-preview-definition', entry.definition));
+
     const open = () => showEntry(entry);
     item.addEventListener('click', open);
     item.addEventListener('keydown', (event) => {
@@ -921,7 +919,7 @@
     const left = el('span', 'dictfloat-source-left');
     left.append(el('span', 'dictfloat-source-term', term));
     if (detail) left.append(el('span', 'dictfloat-source-detail', detail));
-    const badgeNode = el('span', 'dictfloat-source-badge', badge);
+    const badgeNode = badge ? el('span', 'dictfloat-source-badge', badge) : null;
     const chevron = el('span', 'dictfloat-source-chevron', collapsed ? '›' : '⌄');
     header.append(left);
 
@@ -938,7 +936,8 @@
       header.append(save);
     }
 
-    header.append(badgeNode, chevron);
+    if (badgeNode) header.append(badgeNode);
+    header.append(chevron);
     const toggle = () => { void toggleSourceCollapse(key).catch(handleAsyncError); };
     header.addEventListener('click', (event) => {
       if (event.target.closest('.dictfloat-source-save')) return;
@@ -969,15 +968,16 @@
     const item = el('article', 'dictfloat-result-item');
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
-    item.append(el('div', 'dictfloat-result-title', entry.term));
 
-    const summary = el('div', 'dictfloat-result-summary');
-    if (entry.aliases?.length) summary.append(el('span', 'dictfloat-result-aliases', entry.aliases.join(' · ')));
-    if (entry.chinese) {
-      if (entry.aliases?.length) summary.append(document.createTextNode(' '));
-      summary.append(el('span', 'dictfloat-result-chinese', entry.chinese));
-    }
-    if (summary.childNodes.length) item.append(summary);
+    // Search results use a predictable two-line reading order:
+    // term + Chinese on line one, then one primary alias below.
+    const topLine = el('div', 'dictfloat-result-topline');
+    topLine.append(el('span', 'dictfloat-result-title', entry.term));
+    if (entry.chinese) topLine.append(el('span', 'dictfloat-result-chinese', entry.chinese));
+    item.append(topLine);
+
+    const alias = primaryAlias(entry);
+    if (alias) item.append(el('div', 'dictfloat-result-aliases', alias));
 
     if (showSource) {
       const dictionary = dictionaryFor(entry.dictionaryId);
@@ -1045,20 +1045,15 @@
 
     const dictionary = dictionaryFor(entry.dictionaryId);
     const fields = el('div', 'dictfloat-entry-fields');
-    if (entry.aliases?.length) fields.append(el('div', 'dictfloat-entry-aliases', entry.aliases.join(' · ')));
+    // Definition-facing facts first. Source bookkeeping is deliberately moved
+    // below the content so it does not interrupt reading.
     if (entry.chinese) fields.append(el('div', 'dictfloat-entry-chinese', entry.chinese));
-    fields.append(el('div', 'dictfloat-entry-meta', dictionary?.name || 'Local glossary'));
-    if (entry.category) fields.append(el('div', 'dictfloat-entry-meta', entry.category));
-    if (entry.source) fields.append(el('div', 'dictfloat-entry-meta', entry.source));
-    box.append(fields);
+    if (entry.aliases?.length) fields.append(el('div', 'dictfloat-entry-aliases', entry.aliases.join(' · ')));
+    if (fields.childNodes.length) box.append(fields);
 
     box.append(el('div', 'dictfloat-definition', entry.definition || 'No definition yet.'));
 
-    if (entry.tags?.length) {
-      const tags = el('div', 'dictfloat-tags');
-      entry.tags.forEach((tag) => tags.append(el('span', 'dictfloat-tag', tag)));
-      box.append(tags);
-    }
+    appendEntryTags(box, entry.tags || []);
     if (entry.related?.length) {
       const related = el('div', 'dictfloat-related');
       entry.related.forEach((term) => {
@@ -1070,6 +1065,9 @@
       });
       box.append(related);
     }
+
+    const provenance = entryProvenance(entry, dictionary);
+    if (provenance) box.append(el('div', 'dictfloat-entry-provenance', provenance));
     box.append(el('div', 'dictfloat-divider'));
 
     const actions = el('div', 'dictfloat-entry-actions');
@@ -1082,6 +1080,36 @@
     edit.addEventListener('click', () => openEdit(entry));
     actions.append(back, el('span', 'grow'), edit);
     box.append(actions);
+  }
+
+  function appendEntryTags(box, tags) {
+    const safeTags = Array.isArray(tags) ? tags.filter(Boolean).map(String) : [];
+    if (!safeTags.length) return;
+    const wrap = el('div', 'dictfloat-tags');
+    const initialCount = 2;
+    safeTags.slice(0, initialCount).forEach((tag) => wrap.append(el('span', 'dictfloat-tag', tag)));
+    if (safeTags.length > initialCount) {
+      const more = el('button', 'dictfloat-tag dictfloat-tag-more', `+${safeTags.length - initialCount}`);
+      more.type = 'button';
+      more.title = safeTags.slice(initialCount).join(' · ');
+      more.addEventListener('click', () => {
+        safeTags.slice(initialCount).forEach((tag) => wrap.insertBefore(el('span', 'dictfloat-tag', tag), more));
+        more.remove();
+      });
+      wrap.append(more);
+    }
+    box.append(wrap);
+  }
+
+  function entryProvenance(entry, dictionary) {
+    const parts = [dictionary?.name || 'Local glossary'];
+    if (entry.category) parts.push(entry.category);
+    if (dictionary?.builtIn) parts.push('Built-in');
+    else if (dictionary?.locallyEditable) parts.push('Local');
+    const source = String(entry.source || '').trim();
+    // “DictFloat starter glossary” only repeats Built-in; omit it.
+    if (source && !/^dictfloat starter glossary$/i.test(source) && !parts.includes(source)) parts.push(source);
+    return parts.filter(Boolean).join(' · ');
   }
 
   function openEdit(entry) {
