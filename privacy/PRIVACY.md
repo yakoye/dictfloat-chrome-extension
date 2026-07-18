@@ -84,9 +84,9 @@ This policy may be updated when DictFloat's data practices or features change. T
 
 ## 12. Contact
 
-{{CONTACT_MD}}
+[GitHub Issues](https://github.com/yakoye/dictfloat-chrome-extension/issues)
 
-Repository: {{REPOSITORY_URL}}
+Repository: https://github.com/yakoye/dictfloat-chrome-extension
 
 ---
 
@@ -147,6 +147,6 @@ DictFloat 不包含广告 SDK，也不使用第三方分析服务追踪用户活
 
 ## 9. 联系方式
 
-{{CONTACT_MD}}
+[GitHub Issues](https://github.com/yakoye/dictfloat-chrome-extension/issues)
 
-项目仓库：{{REPOSITORY_URL}}
+项目仓库：https://github.com/yakoye/dictfloat-chrome-extension
