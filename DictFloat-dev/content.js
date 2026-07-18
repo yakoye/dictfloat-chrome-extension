@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.4'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.5'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -1983,18 +1983,16 @@
     if (!isCurrentInstance()) return;
     await ensureRoot(false);
     removeBubble();
-    const bubble = el('button', 'dictfloat-bubble');
+
+    // Keep the selection trigger deliberately simple: one small round button.
+    // Its preferred position is roughly two lines above the selection so it
+    // clears webpage copy/edit toolbars; below is only a fallback near the top.
+    const bubble = el('button', 'dictfloat-bubble', '⌕');
     bubble.type = 'button';
     bubble.title = `Look up “${text.slice(0, 42)}”`;
     bubble.setAttribute('aria-label', 'Look up selected text');
 
-    const badge = el('img', 'dictfloat-bubble-badge');
-    badge.src = chrome.runtime.getURL('icons/icon32.png');
-    badge.alt = '';
-    badge.decoding = 'async';
-    bubble.append(badge);
-
-    const size = { width: 34, height: 50 };
+    const size = 22;
     const position = chooseBubblePosition(rect, size, 8, 8);
     bubble.dataset.anchor = position.anchor;
     bubble.style.cssText = `position:fixed;left:${position.left}px;top:${position.top}px;z-index:2147483647;pointer-events:auto;`;
@@ -2005,55 +2003,50 @@
   }
 
   function chooseBubblePosition(rect, size, gap, edge) {
-    const width = Number(size?.width || 34);
-    const height = Number(size?.height || 50);
+    const twoLines = 40;
+    const sideGap = 10;
     const raw = [
-      { anchor: 'above-right', left: rect.right - width + 4, top: rect.top - height - gap },
-      { anchor: 'below-right', left: rect.right - width + 4, top: rect.bottom + gap },
-      { anchor: 'above-left', left: rect.left - 4, top: rect.top - height - gap },
-      { anchor: 'below-left', left: rect.left - 4, top: rect.bottom + gap }
+      { anchor: 'above-right', left: rect.right + sideGap, top: rect.top - size - twoLines },
+      { anchor: 'above-left', left: rect.left - size - sideGap, top: rect.top - size - twoLines },
+      { anchor: 'below-right', left: rect.right + sideGap, top: rect.bottom + twoLines },
+      { anchor: 'below-left', left: rect.left - size - sideGap, top: rect.bottom + twoLines }
     ];
     const candidates = raw.map((item) => {
       const overflow = (item.left < edge ? 30 : 0)
         + (item.top < edge ? 30 : 0)
-        + (item.left + width > window.innerWidth - edge ? 30 : 0)
-        + (item.top + height > window.innerHeight - edge ? 30 : 0);
+        + (item.left + size > window.innerWidth - edge ? 30 : 0)
+        + (item.top + size > window.innerHeight - edge ? 30 : 0);
       return {
         ...item,
-        width,
-        height,
-        left: Math.min(window.innerWidth - width - edge, Math.max(edge, item.left)),
-        top: Math.min(window.innerHeight - height - edge, Math.max(edge, item.top)),
+        left: Math.min(window.innerWidth - size - edge, Math.max(edge, item.left)),
+        top: Math.min(window.innerHeight - size - edge, Math.max(edge, item.top)),
         overflow
       };
     });
     return candidates.sort((a, b) => {
-      const aScore = (a.overflow * 100) + bubbleCollisionScore(a) + bubbleAnchorPenalty(a, rect);
-      const bScore = (b.overflow * 100) + bubbleCollisionScore(b) + bubbleAnchorPenalty(b, rect);
+      const aScore = (a.overflow * 100) + bubbleCollisionScore(a, size) + bubbleAnchorPenalty(a, rect);
+      const bScore = (b.overflow * 100) + bubbleCollisionScore(b, size) + bubbleAnchorPenalty(b, rect);
       return aScore - bScore;
     })[0];
   }
 
   function bubbleAnchorPenalty(candidate, rect) {
     let penalty = 0;
-    if (candidate.anchor.startsWith('above') && rect.top < 78) penalty += 22;
-    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 78) penalty += 22;
-    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 50) penalty += 8;
-    if (candidate.anchor.endsWith('left') && rect.left < 50) penalty += 8;
+    // Prefer the elevated position whenever there is room, then choose the
+    // other side before dropping below the selection.
+    if (candidate.anchor.startsWith('below')) penalty += 24;
+    if (candidate.anchor.startsWith('above') && rect.top < 66) penalty += 80;
+    if (candidate.anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 66) penalty += 80;
+    if (candidate.anchor.endsWith('right') && (window.innerWidth - rect.right) < 46) penalty += 10;
+    if (candidate.anchor.endsWith('left') && rect.left < 46) penalty += 10;
     return penalty;
   }
 
-  function bubbleCollisionScore(candidate) {
-    const width = Number(candidate.width || 34);
-    const height = Number(candidate.height || 50);
+  function bubbleCollisionScore(candidate, size) {
     const points = [
-      [candidate.left + width / 2, candidate.top + 9],
-      [candidate.left + width / 2, candidate.top + height / 2],
-      [candidate.left + width / 2, candidate.top + height - 9],
-      [candidate.left + 8, candidate.top + 8],
-      [candidate.left + width - 8, candidate.top + 8],
-      [candidate.left + 8, candidate.top + height - 8],
-      [candidate.left + width - 8, candidate.top + height - 8]
+      [candidate.left + size / 2, candidate.top + size / 2],
+      [candidate.left + 4, candidate.top + 4],
+      [candidate.left + size - 4, candidate.top + size - 4]
     ];
     let score = 0;
     for (const [x, y] of points) {
@@ -2064,7 +2057,7 @@
         const z = Number.parseInt(style.zIndex, 10);
         const floating = ['fixed', 'sticky'].includes(style.position) || (Number.isFinite(z) && z >= 1000);
         const semantic = /(?:menu|toolbar|popover|tooltip|selection|composer|chatgpt|assistant|copy|edit)/i.test(`${node.getAttribute('role') || ''} ${node.className || ''} ${node.id || ''}`);
-        if (floating || semantic) score += 10;
+        if (floating || semantic) score += 12;
       }
     }
     return score;
