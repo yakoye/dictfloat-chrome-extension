@@ -19,63 +19,74 @@
 button, input, select, textarea { font: inherit; }
 button { -webkit-appearance: none; appearance: none; }
 .dictfloat-panel,
-.dictfloat-mini,
-.dictfloat-bubble {
-  /* Compact beacon: use the app icon as the visible badge and extend only a
-     short connected tail so the marker is readable without covering multiple
-     lines of text. */
+.dictfloat-mini {
   touch-action:none;
   user-select:none;
-  width:36px;
-  height:56px;
+}
+.dictfloat-bubble {
+  /* One-piece tadpole marker: the icon is the head, while the tail and dot
+     come from the same button so the marker reads as one compact shape. */
+  touch-action:none;
+  user-select:none;
+  position:relative;
+  width:34px;
+  height:50px;
   display:block;
   margin:0;
   padding:0;
   border:0;
   background:transparent;
   cursor:pointer;
-  filter:drop-shadow(0 6px 12px var(--df-accent-ring));
+  filter:drop-shadow(0 4px 10px var(--df-accent-ring));
 }
 .dictfloat-bubble:hover { transform:translateY(-1px); }
-.dictfloat-bubble-badge,
-.dictfloat-bubble-stem,
-.dictfloat-bubble-dot { position:absolute; display:block; pointer-events:none; }
 .dictfloat-bubble-badge {
-  width:28px;
-  height:28px;
-  border-radius:10px;
-  object-fit:cover;
+  position:absolute;
+  display:block;
+  width:24px;
+  height:24px;
+  object-fit:contain;
+  pointer-events:none;
 }
-.dictfloat-bubble-stem {
-  width:4px;
-  height:17px;
+.dictfloat-bubble::before,
+.dictfloat-bubble::after {
+  content:"";
+  position:absolute;
+  display:block;
+  pointer-events:none;
+}
+.dictfloat-bubble::before {
+  width:3px;
+  height:14px;
   border-radius:999px;
-  background:linear-gradient(180deg, color-mix(in srgb, var(--df-accent) 80%, white), var(--df-accent-strong));
+  background:linear-gradient(180deg, color-mix(in srgb, var(--df-accent) 84%, white), var(--df-accent-strong));
   transform-origin:top center;
 }
-.dictfloat-bubble-dot {
+.dictfloat-bubble::after {
   width:8px;
   height:8px;
   border-radius:50%;
   background:var(--df-accent);
-  box-shadow:0 0 0 2px color-mix(in srgb, var(--df-accent) 18%, white);
+  box-shadow:0 0 0 2px rgba(255,255,255,.92), 0 0 0 3px color-mix(in srgb, var(--df-accent) 28%, white);
 }
 
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-badge { left:2px; top:0; }
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-stem { left:23px; top:23px; transform:rotate(22deg); }
-.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-dot { left:26px; top:40px; }
+/* up */
+.dictfloat-bubble[data-anchor="above-right"] .dictfloat-bubble-badge { left:6px; top:0; }
+.dictfloat-bubble[data-anchor="above-right"]::before { left:15px; top:20px; transform:rotate(12deg); }
+.dictfloat-bubble[data-anchor="above-right"]::after { left:15px; top:35px; }
 
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-badge { left:6px; top:0; }
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-stem { left:10px; top:23px; transform:rotate(-22deg); }
-.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-dot { left:2px; top:40px; }
+.dictfloat-bubble[data-anchor="above-left"] .dictfloat-bubble-badge { left:4px; top:0; }
+.dictfloat-bubble[data-anchor="above-left"]::before { left:14px; top:20px; transform:rotate(-12deg); }
+.dictfloat-bubble[data-anchor="above-left"]::after { left:12px; top:35px; }
 
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-badge { left:2px; top:28px; }
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-stem { left:23px; top:12px; transform:rotate(-22deg); }
-.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-dot { left:26px; top:4px; }
+/* down */
+.dictfloat-bubble[data-anchor="below-right"] .dictfloat-bubble-badge { left:6px; top:26px; }
+.dictfloat-bubble[data-anchor="below-right"]::before { left:15px; top:16px; transform:rotate(168deg); }
+.dictfloat-bubble[data-anchor="below-right"]::after { left:15px; top:8px; }
 
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-badge { left:6px; top:28px; }
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-stem { left:10px; top:12px; transform:rotate(22deg); }
-.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-dot { left:2px; top:4px; }
+.dictfloat-bubble[data-anchor="below-left"] .dictfloat-bubble-badge { left:4px; top:26px; }
+.dictfloat-bubble[data-anchor="below-left"]::before { left:14px; top:16px; transform:rotate(-168deg); }
+.dictfloat-bubble[data-anchor="below-left"]::after { left:12px; top:8px; }
 
 @media (max-width: 420px) {
   .dictfloat-panel { max-height: calc(100vh - 12px); }
