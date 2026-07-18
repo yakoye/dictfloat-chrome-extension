@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "DictFloat",
+  "version": "0.5.2",
+  "description": "Compact floating dictionary with selection lookup, online fallback, local glossaries, offline Wudao data packs, and MDX text lookup.",
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "scripting",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open DictFloat"
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApcQL7CvE2TlE2YtRjYDnHzDOycYOWbBb/nWWTh5+OirpqrhfdehodI7M3GxV3b26OjPbZfR46juW01ZeZZ2Y1c2xOw2B+Cz66jLLDyT4Gvce46n2myil22A8ihO+dcMZW6jz4vLmZzcLS9SQqY3qWCuIgBiCTr6bOCabcT4bB0H8KGR/sF0Qd8yvFjnxrsx98u3jtRIMECD6FO+2sEA+XR+HaGZk4K4oqGOP0X184nKj70UkQsRwIdU+6Is4HbH34ibYo5H4QF9QSym81XjnOAuVwzh86x9jeqxOMnwLKCuEEg2FWwY1HF3RDEgn0aQIbeHSnQPB9Jc+aKbGOGLnLwIDAQAB"
+}

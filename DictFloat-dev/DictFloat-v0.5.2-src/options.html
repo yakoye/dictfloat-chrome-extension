@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DictFloat Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
+      <div class="version">v0.5.2</div>
+    </header>
+
+    <section class="card">
+      <h2>Selection lookup</h2>
+      <p class="hint">Choose what happens after text is selected on a webpage.</p>
+      <label class="setting-row"><span>Mode</span><select id="selectionMode"><option value="bubble">Show lookup bubble</option><option value="auto">Open lookup window automatically</option><option value="off">Off</option></select></label>
+    </section>
+
+    <section class="card">
+      <h2>Floating window</h2>
+      <div class="window-grid">
+        <label class="field"><span>Font size</span><span class="input-with-unit"><input id="fontSize" type="number" min="10" max="15" step="1"><small>px</small></span></label>
+        <label class="field"><span>Panel width</span><span class="input-with-unit"><input id="panelWidth" type="number" min="320" max="520" step="10"><small>px</small></span></label>
+        <label class="field"><span>Theme</span><select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label class="field"><span>Accent</span><select id="accent"><option value="green">Green</option><option value="blue">Blue</option><option value="rose">Rose</option></select></label>
+      </div>
+      <div class="inline-actions"><button id="resetWindowPosition" type="button">Reset window position</button></div>
+      <p class="hint">Light uses an opaque white window, even when Chrome and the webpage are dark.</p>
+    </section>
+
+    <section class="card">
+      <h2>Online lookup</h2>
+      <p class="hint">Look up the word or phrase after you press Enter or use selection lookup. No API key is needed.</p>
+      <label class="toggle-row"><span>Search online after Enter / selection lookup</span><input id="onlineLookup" type="checkbox"></label>
+      <p class="hint">Only an actively queried term is sent to an online provider. Local glossaries and webpage content stay on this device.</p>
+    </section>
+
+    <section class="card library-card" id="dictionaryLibraryCard">
+      <div class="section-title library-heading">
+        <div>
+          <h2>Dictionary Library</h2>
+          <p class="hint">All sources. Drag rows to set lookup order.</p>
+        </div>
+        <div class="library-add-wrap">
+          <button id="toggleAddSource" type="button" aria-expanded="false">+ Add source</button>
+          <div id="addSourceMenu" class="source-menu" hidden>
+            <button id="newGlossaryAction" type="button">Create empty glossary</button>
+            <label class="source-menu-file">Import JSON / CSV glossary<input id="importFile" type="file" accept=".json,.csv,application/json,text/csv"></label>
+            <label class="source-menu-file">Import Wudao offline pack<input id="importWudaoFiles" type="file" accept=".ind,.z" multiple></label>
+            <button id="connectMdictFolder" type="button">Connect MDX / MDD folder</button>
+          </div>
+        </div>
+      </div>
+      <div id="libraryConnectionNotice" class="library-connection-notice" hidden>
+        <span id="libraryConnectionNoticeText"></span>
+        <button id="reconnectDictionaryRootInline" type="button">Find missing</button>
+      </div>
+      <div id="librarySourceList" class="dictionary-list library-source-list"></div>
+      <div class="library-progress">
+        <button id="cancelMdictIndex" type="button" class="danger" hidden>Cancel indexing</button>
+        <span id="libraryHint" class="hint">Original CSS is isolated to dictionary content. Images, audio, fonts, and JavaScript stay off.</span>
+      </div>
+    </section>
+
+    <section class="card recovery-card">
+      <div class="section-title recovery-heading">
+        <div>
+          <h2>Backup &amp; recovery</h2>
+          <p class="hint">Keep a small backup of DictFloat settings and editable data. Linked dictionary files stay in your local folders.</p>
+        </div>
+      </div>
+      <div class="actions recovery-actions">
+        <button id="exportBackup" type="button">Export backup</button>
+        <label class="file-btn">Import backup<input id="importBackup" type="file" accept=".json,application/json"></label>
+      </div>
+      <details class="recovery-details">
+        <summary>More data tools</summary>
+        <div class="actions">
+          <button id="exportJson" type="button">Export editable JSON</button>
+          <button id="exportCsv" type="button">Export editable CSV</button>
+          <button class="danger" id="clearEntries" type="button">Clear all glossary entries</button>
+        </div>
+      </details>
+      <details class="recovery-details recovery-snapshots">
+        <summary>Recovery snapshots</summary>
+        <p class="hint">DictFloat keeps the latest five small snapshots before high-impact changes. MDX / MDD and Wudao data files are never copied.</p>
+        <div id="recoverySnapshotList" class="recovery-snapshot-list"></div>
+      </details>
+      <p id="status" class="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <dialog id="entryManagerDialog" class="entry-manager-dialog" aria-labelledby="entryManagerTitle">
+    <div class="entry-manager-card"><div class="entry-manager-head"><h2 id="entryManagerTitle">Glossary entries</h2><button id="entryManagerClose" type="button" aria-label="Close">×</button></div><div class="entry-manager-tools"><input id="entryManagerSearch" type="search" placeholder="Search entries"><button id="entryManagerAdd" type="button">+ Add entry</button></div><div id="entryManagerList" class="entry-manager-list"></div></div>
+  </dialog>
+  <dialog id="entryEditorDialog" class="entry-manager-dialog" aria-labelledby="entryEditorTitle">
+    <div class="entry-manager-card entry-editor-card"><div class="entry-manager-head"><h2 id="entryEditorTitle">Edit entry</h2><button id="entryEditorCancel" type="button" aria-label="Close">×</button></div><form id="entryEditorForm" class="entry-editor-form"><label>Term *<input name="term" required></label><label>Chinese<input name="chinese"></label><label class="wide">Aliases<input name="aliases" placeholder="comma-separated"></label><label class="wide">Definition *<textarea name="definition" required></textarea></label><label>Tags<input name="tags" placeholder="comma-separated"></label><label>Related terms<input name="related" placeholder="comma-separated"></label><label>Category<input name="category"></label><label>Source<input name="source"></label><div class="actions entry-editor-actions"><button id="entryEditorDelete" class="danger" type="button" hidden>Delete</button><span class="grow"></span><button id="entryEditorCancelSecondary" type="button">Cancel</button><button type="submit">Save</button></div></form></div>
+  </dialog>
+
+  <dialog id="safetyDialog" class="safety-dialog" aria-labelledby="safetyDialogTitle">
+    <div class="safety-dialog-card">
+      <h2 id="safetyDialogTitle">Confirm change</h2>
+      <p id="safetyDialogMessage" class="safety-dialog-message"></p>
+      <ul id="safetyDialogImpact" class="safety-dialog-impact"></ul>
+      <label id="safetyDialogInputWrap" class="safety-dialog-input" hidden>
+        <span id="safetyDialogInputLabel"></span>
+        <input id="safetyDialogInput" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="actions safety-dialog-actions">
+        <button id="safetyDialogCancel" type="button">Cancel</button>
+        <button id="safetyDialogConfirm" class="danger" type="button">Continue</button>
+      </div>
+    </div>
+  </dialog>
+  <script src="mdict-db.js"></script>
+    <script src="options.js"></script>
+</body>
+</html>
