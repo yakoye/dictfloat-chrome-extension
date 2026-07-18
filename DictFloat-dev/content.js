@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.2'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.3'; }
   })();
   // Generated at package time from content.css. Keeping the stylesheet inside
   // the content script avoids a chrome-extension:// fetch from pages with
@@ -2362,15 +2362,30 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     const clientRects = [...(range.getClientRects?.() || [])]
       .filter((item) => Number.isFinite(item?.left) && Number.isFinite(item?.top) && (item.width || item.height));
     if (clientRects.length) {
-      const left = Math.min(...clientRects.map((item) => item.left));
-      const right = Math.max(...clientRects.map((item) => item.right));
-      const top = Math.min(...clientRects.map((item) => item.top));
-      const bottom = Math.max(...clientRects.map((item) => item.bottom));
-      return { left, right, top, bottom, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+      const lineRects = clientRects.map((item) => ({
+        left: item.left, right: item.right, top: item.top, bottom: item.bottom,
+        width: Math.max(1, item.right - item.left), height: Math.max(1, item.bottom - item.top)
+      }));
+      const left = Math.min(...lineRects.map((item) => item.left));
+      const right = Math.max(...lineRects.map((item) => item.right));
+      const top = Math.min(...lineRects.map((item) => item.top));
+      const bottom = Math.max(...lineRects.map((item) => item.bottom));
+      return {
+        left, right, top, bottom,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+        startRect: lineRects[0],
+        endRect: lineRects[lineRects.length - 1],
+        lineRects
+      };
     }
     const rect = range.getBoundingClientRect?.();
     if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)) return null;
-    return rect;
+    return {
+      left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+      width: Math.max(1, rect.right - rect.left), height: Math.max(1, rect.bottom - rect.top),
+      startRect: null, endRect: null, lineRects: []
+    };
   }
 
   async function showBubble(text, rect) {
@@ -2398,8 +2413,8 @@ ${scope} :where(hr) { border-color:#34445e !important; }
   }
 
   function chooseBubblePosition(rect, size, gap, edge) {
-    const sideGap = 7;
-    const verticalGap = Math.max(5, gap);
+    const sideGap = 5;
+    const verticalGap = Math.max(4, gap);
     const pointer = state.selectionPointer;
     const hasFreshPointer = pointer
       && Number.isFinite(pointer.startX) && Number.isFinite(pointer.startY)
@@ -2409,21 +2424,25 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     const preferredSide = direction === 'left' ? 'left' : 'right';
     const oppositeSide = preferredSide === 'left' ? 'right' : 'left';
 
-    // For multi-line paragraph selection, Range#getClientRects() produces a
-    // large bounding box whose right edge may be far away from the actual mouse
-    // release point. Anchor the bubble to the pointer end when available, and
-    // fall back to the range edge only for keyboard selection.
-    const anchorX = hasFreshPointer ? pointer.endX : (preferredSide === 'left' ? rect.left : rect.right);
-    const anchorY = hasFreshPointer ? pointer.endY : rect.bottom;
-    const sideLeftFromAnchor = (side) => side === 'left' ? anchorX - size - sideGap : anchorX + sideGap;
-    const sideLeftFromRect = (side) => side === 'left' ? rect.left - size - sideGap : rect.right + sideGap;
+    // The trigger must not cover short selected words. Treat the selection as
+    // a rectangle/line rectangle: the circular button sits just outside the
+    // lower-left or lower-right edge. For paragraph selections, use the real
+    // first/last line rectangle instead of the whole bounding box, so a
+    // rightward selection no longer sends the icon to the far page edge.
+    const anchorRect = preferredSide === 'left'
+      ? (rect.startRect || rect.lineRects?.[0] || rect)
+      : (rect.endRect || rect.lineRects?.[rect.lineRects.length - 1] || rect);
+    const anchorX = preferredSide === 'left' ? anchorRect.left : anchorRect.right;
+    const anchorBottom = anchorRect.bottom;
+    const alignedTop = anchorBottom - size;
+    const sideLeft = (side, baseRect = anchorRect) => side === 'left' ? baseRect.left - size - sideGap : baseRect.right + sideGap;
     const raw = [
-      { anchor: `below-${preferredSide}`, left: sideLeftFromAnchor(preferredSide), top: anchorY + verticalGap, preferred: true },
-      { anchor: `above-${preferredSide}`, left: sideLeftFromAnchor(preferredSide), top: anchorY - size - verticalGap },
-      { anchor: `below-${oppositeSide}`, left: sideLeftFromAnchor(oppositeSide), top: anchorY + verticalGap },
-      { anchor: `above-${oppositeSide}`, left: sideLeftFromAnchor(oppositeSide), top: anchorY - size - verticalGap },
-      { anchor: `rect-below-${preferredSide}`, left: sideLeftFromRect(preferredSide), top: rect.bottom + verticalGap },
-      { anchor: `rect-above-${preferredSide}`, left: sideLeftFromRect(preferredSide), top: rect.top - size - verticalGap }
+      { anchor: `edge-${preferredSide}`, left: sideLeft(preferredSide), top: alignedTop, preferred: true },
+      { anchor: `below-${preferredSide}`, left: sideLeft(preferredSide), top: anchorBottom + verticalGap },
+      { anchor: `above-${preferredSide}`, left: sideLeft(preferredSide), top: anchorRect.top - size - verticalGap },
+      { anchor: `edge-${oppositeSide}`, left: sideLeft(oppositeSide), top: alignedTop },
+      { anchor: `below-${oppositeSide}`, left: sideLeft(oppositeSide), top: anchorBottom + verticalGap },
+      { anchor: `rect-edge-${preferredSide}`, left: sideLeft(preferredSide, rect), top: rect.bottom - size }
     ];
     const candidates = raw.map((item) => {
       const overflow = (item.left < edge ? 30 : 0)
@@ -2447,6 +2466,7 @@ ${scope} :where(hr) { border-color:#34445e !important; }
   function bubbleAnchorPenalty(candidate, rect, preferredSide = 'right') {
     let penalty = 0;
     const anchor = String(candidate?.anchor || '');
+    if (!anchor.startsWith('edge') && !anchor.startsWith('rect-edge')) penalty += 6;
     if (anchor.startsWith('above')) penalty += 10;
     if (!anchor.endsWith(preferredSide)) penalty += 12;
     if (anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 42) penalty += 80;

@@ -294,7 +294,8 @@ function seedEntries() {
 const WEB_BRIDGE_PROVIDERS = {
   // Youdao often redirects fanyi.youdao.com to f.youdao.com. Query both hosts
   // and keep the bridge tab inactive so we do not create a new visible tab on
-  // every translation request after the redirect.
+  // every translation request after the redirect. DictFloat never re-focuses
+  // the source tab during bridge work, avoiding surprise tab jumps.
   youdao: {
     key: 'youdao',
     name: 'Youdao Web Bridge',
@@ -332,8 +333,6 @@ async function translateWithWebBridge(rawText, providerKeys, sourceTabId = null)
       throw new Error('No translation returned.');
     } catch (error) {
       errors.push(`${WEB_BRIDGE_PROVIDERS[key].name}: ${cleanBridgeError(error)}`);
-    } finally {
-      await restoreSourceTab(sourceTabId).catch(() => undefined);
     }
   }
   throw new Error(errors.join(' | ') || 'Web bridge translation failed.');
@@ -342,7 +341,6 @@ async function translateWithWebBridge(rawText, providerKeys, sourceTabId = null)
 async function translateWithOneWebBridge(providerKey, text, sourceTabId = null) {
   const config = WEB_BRIDGE_PROVIDERS[providerKey];
   const tab = await ensureBridgeTab(config, sourceTabId);
-  await restoreSourceTab(sourceTabId).catch(() => undefined);
   const response = await sendBridgeRequest(tab.id, { type: 'DICTFLOAT_WEB_BRIDGE_TRANSLATE', provider: providerKey, text }, config, sourceTabId);
   if (!response?.ok) throw new Error(response?.error || `${config.name} failed.`);
   return { ...response.data, provider: config.name };
@@ -357,7 +355,6 @@ async function ensureBridgeTab(config, sourceTabId = null) {
       await chrome.tabs.update(existing.id, { url: config.url, active: false }).catch(() => undefined);
       await waitForTabComplete(existing.id, 18000).catch(() => undefined);
     }
-    await restoreSourceTab(sourceTabId).catch(() => undefined);
     return await chrome.tabs.get(existing.id).catch(() => existing);
   }
   const createOptions = { url: config.url, active: false };
@@ -365,9 +362,7 @@ async function ensureBridgeTab(config, sourceTabId = null) {
   if (sourceTab?.windowId != null) createOptions.windowId = sourceTab.windowId;
   if (Number.isInteger(sourceTab?.index)) createOptions.index = sourceTab.index + 1;
   const created = await chrome.tabs.create(createOptions);
-  await restoreSourceTab(sourceTabId).catch(() => undefined);
   await waitForTabComplete(created.id, 18000).catch(() => undefined);
-  await restoreSourceTab(sourceTabId).catch(() => undefined);
   return created;
 }
 
@@ -395,7 +390,6 @@ async function sendBridgeRequest(tabId, message, config, sourceTabId = null) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await injectBridgeScript(tabId);
-      await restoreSourceTab(sourceTabId).catch(() => undefined);
       const response = await withTimeout(chrome.tabs.sendMessage(tabId, message), 90000, `${config.name} timed out.`);
       if (response) return response;
       throw new Error(`${config.name} returned no response.`);

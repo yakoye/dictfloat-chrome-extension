@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Compact floating dictionary with selection lookup, local glossaries, offline dictionaries, web-bridge translation, and optional online results.",
   "permissions": [
     "storage",
