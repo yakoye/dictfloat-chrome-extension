@@ -1,7 +1,7 @@
 importScripts('mdict-db.js', 'mdict-core.js');
 
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.4.4';
+const CONTENT_RUNTIME_VERSION = '0.4.5';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -62,37 +62,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID || !tab?.id || !info.selectionText) return;
-  await sendToTab(tab.id, { type: 'DICTFLOAT_LOOKUP', query: info.selectionText.trim() });
+  await sendToTab(tab.id, { type: 'DICTFLOAT_LOOKUP', query: info.selectionText.trim() }, info.frameId ?? 0);
 });
 
-async function sendToTab(tabId, message) {
+async function sendToTab(tabId, message, frameId = 0) {
+  const frameOptions = Number.isInteger(frameId) && frameId !== 0 ? { frameId } : undefined;
+  const target = Number.isInteger(frameId) && frameId !== 0 ? { tabId, frameIds: [frameId] } : { tabId };
   try {
-    const current = await probeContent(tabId);
+    const current = await probeContent(tabId, frameOptions);
     if (!current) {
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-      await waitForCurrentContent(tabId);
+      await chrome.scripting.executeScript({ target, files: ['content.js'] });
+      await waitForCurrentContent(tabId, frameOptions);
     }
-    await chrome.tabs.sendMessage(tabId, message);
+    await chrome.tabs.sendMessage(tabId, message, frameOptions);
     // A previous extension build may still have a listener in this tab.
     // Let the current build prune any host it left behind after this action.
-    await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_REPAIR' }).catch(() => undefined);
+    await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_REPAIR' }, frameOptions).catch(() => undefined);
   } catch (error) {
     console.warn('DictFloat cannot run on this page.', error);
   }
 }
 
-async function probeContent(tabId) {
+async function probeContent(tabId, frameOptions) {
   try {
-    const response = await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_PING' });
+    const response = await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_PING' }, frameOptions);
     return response?.version === CONTENT_RUNTIME_VERSION;
   } catch (_) {
     return false;
   }
 }
 
-async function waitForCurrentContent(tabId) {
+async function waitForCurrentContent(tabId, frameOptions) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    if (await probeContent(tabId)) return;
+    if (await probeContent(tabId, frameOptions)) return;
     await new Promise((resolve) => setTimeout(resolve, 60));
   }
   throw new Error('DictFloat content script did not initialize');

@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.4';
+  const RUNTIME_VERSION = '0.4.5';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -55,7 +55,8 @@
     destroyed: false,
     themeMedia: null,
     themeListener: null,
-    dragCleanup: null
+    dragCleanup: null,
+    selectionTimer: null
   };
 
   const instance = { version: RUNTIME_VERSION, token: INSTANCE_TOKEN, destroy: destroyInstance };
@@ -94,7 +95,14 @@
     state.sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
     state.collapsedSources = new Set(Array.isArray(data.dictFloatCollapsedSources) ? data.dictFloatCollapsedSources.map(String) : []);
 
-    document.addEventListener('mouseup', handleSelection, true);
+    // Reader-mode extensions may stop mouse events at document level or render
+    // their content inside a ShadowRoot / about:blank iframe. Listen from window
+    // capture phase first, then use selectionchange and keyboard fallbacks.
+    window.addEventListener('mouseup', handleSelection, true);
+    window.addEventListener('pointerup', handleSelection, true);
+    window.addEventListener('touchend', handleSelection, true);
+    window.addEventListener('keyup', handleSelectionKeyup, true);
+    document.addEventListener('selectionchange', handleSelectionChange, true);
     document.addEventListener('keydown', handleGlobalKeys, true);
     state.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     state.themeListener = () => {
@@ -144,8 +152,14 @@
   function destroyInstance() {
     if (state.destroyed) return;
     state.destroyed = true;
-    document.removeEventListener('mouseup', handleSelection, true);
+    window.removeEventListener('mouseup', handleSelection, true);
+    window.removeEventListener('pointerup', handleSelection, true);
+    window.removeEventListener('touchend', handleSelection, true);
+    window.removeEventListener('keyup', handleSelectionKeyup, true);
+    document.removeEventListener('selectionchange', handleSelectionChange, true);
     document.removeEventListener('keydown', handleGlobalKeys, true);
+    if (state.selectionTimer) clearTimeout(state.selectionTimer);
+    state.selectionTimer = null;
     state.themeMedia?.removeEventListener?.('change', state.themeListener);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     chrome.storage.onChanged.removeListener(onStorageChanged);
@@ -1556,26 +1570,112 @@
     return `${data.term || state.query}${data.phonetic ? `\n${data.phonetic}` : ''}${data.translation ? `\n${data.translation}` : ''}${definitions ? `\n${definitions}` : ''}`;
   }
 
+  // Selection handling deliberately has several entry points. Some reader-mode
+  // extensions intercept mouseup at document level, while others render the
+  // reading copy in an open ShadowRoot or an about:blank frame. Window-capture
+  // receives composed pointer events before a reader can stop them; selection-
+  // change and keyboard paths cover drag selection and Shift+Arrow selection.
   function handleSelection(event) {
-    if (!isCurrentInstance() || event.composedPath?.().includes(state.host)) return;
-    setTimeout(() => {
-      const selection = window.getSelection();
-      const text = selection?.toString().trim();
-      if (!text || text.length > 160 || state.settings.selectionMode === 'off') {
-        removeBubble();
-        return;
+    if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
+    scheduleSelectionCheck(event, 20);
+  }
+
+  function handleSelectionKeyup(event) {
+    if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
+    if (event.key === 'Shift' || event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') {
+      scheduleSelectionCheck(event, 24);
+    }
+  }
+
+  function handleSelectionChange(event) {
+    if (!isCurrentInstance()) return;
+    scheduleSelectionCheck(event, 110);
+  }
+
+  function eventIsFromDictFloat(event) {
+    const path = event?.composedPath?.() || [];
+    return path.includes(state.host) || path.includes(state.panel) || path.includes(state.bubble);
+  }
+
+  function scheduleSelectionCheck(event, delay = 40) {
+    if (state.selectionTimer) clearTimeout(state.selectionTimer);
+    const contextNode = selectionContextNode(event);
+    state.selectionTimer = setTimeout(() => {
+      state.selectionTimer = null;
+      inspectSelection(contextNode);
+    }, delay);
+  }
+
+  function selectionContextNode(event) {
+    const path = event?.composedPath?.();
+    if (Array.isArray(path) && path.length) {
+      return path.find((node) => node && node.nodeType === Node.ELEMENT_NODE) || null;
+    }
+    return event?.target?.nodeType === Node.ELEMENT_NODE ? event.target : null;
+  }
+
+  function inspectSelection(contextNode) {
+    if (!isCurrentInstance()) return;
+    const snapshot = getSelectionSnapshot(contextNode);
+    const text = snapshot?.text || '';
+    if (!text || text.length > 160 || state.settings.selectionMode === 'off') {
+      removeBubble();
+      return;
+    }
+    if (!snapshot?.rect || (!snapshot.rect.width && !snapshot.rect.height)) return;
+    if (state.settings.selectionMode === 'auto') {
+      removeBubble();
+      void openAndLookup(text);
+      return;
+    }
+    void showBubble(text, snapshot.rect);
+  }
+
+  function getSelectionSnapshot(contextNode) {
+    const candidates = [];
+    const pushSelection = (selection) => {
+      if (!selection || !selection.rangeCount) return;
+      const text = String(selection.toString?.() || '').replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      const range = selection.getRangeAt(0);
+      const rect = rectForRange(range);
+      if (rect) candidates.push({ text, rect });
+    };
+
+    // The normal document selection is still the common path.
+    pushSelection(window.getSelection?.());
+    if (document.getSelection && document.getSelection() !== window.getSelection?.()) pushSelection(document.getSelection());
+
+    // Chrome exposes getSelection() on open ShadowRoots. This catches reader
+    // copies that keep their selectable article inside a shadow tree.
+    const root = contextNode?.getRootNode?.();
+    if (root && root !== document && typeof root.getSelection === 'function') pushSelection(root.getSelection());
+    if (contextNode?.shadowRoot && typeof contextNode.shadowRoot.getSelection === 'function') pushSelection(contextNode.shadowRoot.getSelection());
+
+    // Text inputs are not the main reader use case, but this makes the lookup
+    // bubble consistent for selected words in editable fields as well.
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+      const start = Number(active.selectionStart ?? 0);
+      const end = Number(active.selectionEnd ?? 0);
+      if (end > start) {
+        const text = String(active.value || '').slice(start, end).replace(/\s+/g, ' ').trim();
+        if (text) candidates.push({ text, rect: active.getBoundingClientRect() });
       }
-      const range = selection.getRangeAt?.(0);
-      if (!range) return;
-      const rect = range.getBoundingClientRect();
-      if (!rect.width && !rect.height) return;
-      if (state.settings.selectionMode === 'auto') {
-        removeBubble();
-        void openAndLookup(text);
-        return;
-      }
-      void showBubble(text, rect);
-    }, 10);
+    }
+
+    return candidates.find((item) => item.rect && (item.rect.width || item.rect.height)) || null;
+  }
+
+  function rectForRange(range) {
+    if (!range) return null;
+    let rect = range.getBoundingClientRect?.();
+    if (!rect || (!rect.width && !rect.height)) {
+      const rects = range.getClientRects?.();
+      if (rects?.length) rect = rects[rects.length - 1];
+    }
+    if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)) return null;
+    return rect;
   }
 
   async function showBubble(text, rect) {
