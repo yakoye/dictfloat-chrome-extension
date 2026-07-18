@@ -1,11 +1,11 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.1';
-  // A reloaded extension can leave an older injected host in the page.
-  // Keep the current page to one DictFloat host only.
-  if (window.__DICTFLOAT_LOADED__ && document.documentElement.dataset.dictfloatRuntimeVersion === RUNTIME_VERSION) return;
+  const RUNTIME_VERSION = '0.3.2';
+  // One page may temporarily keep an older content-script instance after an
+  // extension refresh. Dispose it first, then remove every legacy host.
+  try { window.__DICTFLOAT_INSTANCE__?.destroy?.(); } catch (_) {}
   window.__DICTFLOAT_LOADED__ = true;
   document.documentElement.dataset.dictfloatRuntimeVersion = RUNTIME_VERSION;
-  document.querySelectorAll('[data-dictfloat-root="true"], #dictfloat-root').forEach((node) => node.remove());
+  document.querySelectorAll('[data-dictfloat-root="true"], [data-dictfloat="true"], #dictfloat-root').forEach((node) => node.remove());
 
   const storage = chrome.storage.local;
   const DEFAULT_SETTINGS = {
@@ -33,8 +33,14 @@
     position: null,
     online: { query: '', status: 'idle', data: null, error: '' },
     draftEntry: null,
-    cssPromise: null
+    cssPromise: null,
+    destroyed: false,
+    themeMedia: null,
+    themeListener: null
   };
+
+  const instance = { version: RUNTIME_VERSION, destroy: destroyInstance };
+  window.__DICTFLOAT_INSTANCE__ = instance;
 
   void init();
 
@@ -46,6 +52,7 @@
       'dictFloatHistory',
       'dictFloatPanelPosition'
     ]);
+    if (state.destroyed) return;
     state.entries = Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries.map(normalizeEntry) : [];
     state.dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
     state.settings = { ...DEFAULT_SETTINGS, ...(data.dictFloatSettings || {}) };
@@ -54,28 +61,56 @@
 
     document.addEventListener('mouseup', handleSelection, true);
     document.addEventListener('keydown', handleGlobalKeys, true);
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    media.addEventListener?.('change', () => {
-      if (state.settings.theme === 'system' && state.host?.isConnected) render();
-    });
+    state.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    state.themeListener = () => {
+      if (!state.destroyed && state.settings.theme === 'system' && state.host?.isConnected) render();
+    };
+    state.themeMedia.addEventListener?.('change', state.themeListener);
+    chrome.runtime.onMessage.addListener(onRuntimeMessage);
+    chrome.storage.onChanged.addListener(onStorageChanged);
     void ensureStyles();
     if (state.host?.isConnected) render();
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
+  function onRuntimeMessage(message, _sender, sendResponse) {
+    if (state.destroyed) return;
+    if (message?.type === 'DICTFLOAT_PING') {
+      sendResponse({ version: RUNTIME_VERSION });
+      return;
+    }
+    if (message?.type === 'DICTFLOAT_REPAIR') {
+      if (state.host?.isConnected) removeForeignRoots(state.host);
+      return;
+    }
     if (message?.type === 'DICTFLOAT_TOGGLE') void toggle();
     if (message?.type === 'DICTFLOAT_LOOKUP') void openAndLookup(message.query || '');
-  });
+  }
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
+  function onStorageChanged(changes, areaName) {
+    if (state.destroyed || areaName !== 'local') return;
     if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue.map(normalizeEntry) : [];
     if (changes.dictFloatDictionaries) state.dictionaries = normalizeDictionaries(changes.dictFloatDictionaries.newValue);
     if (changes.dictFloatHistory) state.history = Array.isArray(changes.dictFloatHistory.newValue) ? changes.dictFloatHistory.newValue : [];
     if (changes.dictFloatSettings) state.settings = { ...DEFAULT_SETTINGS, ...(changes.dictFloatSettings.newValue || {}) };
     if (changes.dictFloatPanelPosition) state.position = changes.dictFloatPanelPosition.newValue || null;
     if (state.host?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatHistory || changes.dictFloatSettings || changes.dictFloatPanelPosition)) render();
-  });
+  }
+
+  function destroyInstance() {
+    if (state.destroyed) return;
+    state.destroyed = true;
+    document.removeEventListener('mouseup', handleSelection, true);
+    document.removeEventListener('keydown', handleGlobalKeys, true);
+    state.themeMedia?.removeEventListener?.('change', state.themeListener);
+    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+    chrome.storage.onChanged.removeListener(onStorageChanged);
+    removeBubble();
+    state.host?.remove();
+    state.host = null;
+    state.mount = null;
+    state.panel = null;
+    if (window.__DICTFLOAT_INSTANCE__ === instance) delete window.__DICTFLOAT_INSTANCE__;
+  }
 
   async function ensureStyles() {
     if (!state.cssPromise) {
@@ -89,6 +124,7 @@
   }
 
   async function ensureRoot(renderOnCreate = false) {
+    if (state.destroyed) return;
     if (state.host?.isConnected && state.mount) {
       removeForeignRoots(state.host);
       return;
@@ -110,12 +146,13 @@
   }
 
   function removeForeignRoots(keep = null) {
-    document.querySelectorAll('[data-dictfloat-root="true"], #dictfloat-root').forEach((node) => {
+    document.querySelectorAll('[data-dictfloat-root="true"], [data-dictfloat="true"], #dictfloat-root').forEach((node) => {
       if (node !== keep) node.remove();
     });
   }
 
   async function toggle() {
+    if (state.destroyed) return;
     const panelWasOpen = !!state.panel?.isConnected && !state.minimized;
     await ensureRoot(false);
     if (panelWasOpen) {
@@ -128,12 +165,14 @@
   }
 
   async function openAndLookup(query) {
+    if (state.destroyed) return;
     await ensureRoot(true);
     state.minimized = false;
     lookup(query);
   }
 
   async function open() {
+    if (state.destroyed) return;
     await ensureRoot(true);
     state.minimized = false;
     render();
@@ -149,7 +188,8 @@
   }
 
   function render() {
-    if (!state.mount) return;
+    if (state.destroyed || !state.mount || !state.host?.isConnected) return;
+    removeForeignRoots(state.host);
     const pos = getPosition();
     [...state.mount.querySelectorAll(':scope > :not(style)')].forEach((node) => node.remove());
     if (state.minimized) {
@@ -303,8 +343,13 @@
   }
 
   function renderContentOnly() {
+    if (state.destroyed || !state.host?.isConnected) return;
+    removeForeignRoots(state.host);
     const box = state.mount?.querySelector('#dictfloat-content');
-    if (!box) return;
+    if (!box) {
+      render();
+      return;
+    }
     fillContent(box);
     updateTabs();
   }
@@ -358,10 +403,17 @@
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.append(el('div', 'dictfloat-result-title', entry.term));
-    item.append(resultFact('Aliases', entry.aliases?.length ? entry.aliases.join(' · ') : '—', 'dictfloat-result-aliases'));
-    item.append(resultFact('Chinese', entry.chinese || '—', 'dictfloat-result-preview'));
+
+    const summary = el('div', 'dictfloat-result-summary');
+    if (entry.aliases?.length) summary.append(el('span', 'dictfloat-result-aliases', entry.aliases.join(' · ')));
+    if (entry.chinese) {
+      if (entry.aliases?.length) summary.append(document.createTextNode(' '));
+      summary.append(el('span', 'dictfloat-result-chinese', entry.chinese));
+    }
+    if (summary.childNodes.length) item.append(summary);
+
     const dictionary = dictionaryFor(entry.dictionaryId);
-    item.append(resultFact('Dictionary', dictionary?.name || 'Local glossary', 'dictfloat-result-source'));
+    item.append(el('div', 'dictfloat-result-source', dictionary?.name || 'Local glossary'));
     const openItem = () => showEntry(entry);
     item.addEventListener('click', openItem);
     item.addEventListener('keydown', (event) => {
@@ -373,12 +425,6 @@
     return item;
   }
 
-  function resultFact(label, value, className = '') {
-    const line = el('div', `dictfloat-result-fact ${className}`.trim());
-    line.append(el('span', 'dictfloat-result-label', `${label}:`), document.createTextNode(` ${value}`));
-    return line;
-  }
-
   function showEntry(entry) {
     state.view = 'lookup';
     state.editingId = null;
@@ -386,7 +432,7 @@
     state.query = entry.term;
     state.draftEntry = null;
     void addHistory(entry);
-    renderContentOnly();
+    render();
   }
 
   function fillEntry(box, entry) {
@@ -405,11 +451,11 @@
 
     const dictionary = dictionaryFor(entry.dictionaryId);
     const fields = el('div', 'dictfloat-entry-fields');
-    fields.append(detailField('Aliases', entry.aliases?.length ? entry.aliases.join(' · ') : '—'));
-    fields.append(detailField('Chinese', entry.chinese || '—', 'cn'));
-    fields.append(detailField('Dictionary', dictionary?.name || 'Local glossary'));
-    if (entry.category) fields.append(detailField('Category', entry.category));
-    if (entry.source) fields.append(detailField('Source', entry.source));
+    if (entry.aliases?.length) fields.append(el('div', 'dictfloat-entry-aliases', entry.aliases.join(' · ')));
+    if (entry.chinese) fields.append(el('div', 'dictfloat-entry-chinese', entry.chinese));
+    fields.append(el('div', 'dictfloat-entry-meta', dictionary?.name || 'Local glossary'));
+    if (entry.category) fields.append(el('div', 'dictfloat-entry-meta', entry.category));
+    if (entry.source) fields.append(el('div', 'dictfloat-entry-meta', entry.source));
     box.append(fields);
 
     box.append(el('div', 'dictfloat-definition', entry.definition || 'No definition yet.'));
@@ -440,7 +486,8 @@
       state.selectedId = null;
       state.editingId = null;
       state.view = 'lookup';
-      renderContentOnly();
+      // Rebuild the single active panel so a stale shell cannot remain below it.
+      render();
     });
     const copy = el('button', '', 'Copy');
     copy.type = 'button';
@@ -450,12 +497,6 @@
     edit.addEventListener('click', () => openEdit(entry));
     actions.append(back, el('span', 'grow'), copy, edit);
     box.append(actions);
-  }
-
-  function detailField(label, value, kind = '') {
-    const line = el('div', `dictfloat-entry-field ${kind}`.trim());
-    line.append(el('span', 'dictfloat-entry-label', `${label}:`), document.createTextNode(` ${value}`));
-    return line;
   }
 
   function openEdit(entry) {
@@ -825,7 +866,13 @@
     };
   }
   function formatCopy(entry) {
-    return `${entry.term}${entry.chinese ? `\n${entry.chinese}` : ''}\n${entry.definition}${entry.aliases?.length ? `\nAliases: ${entry.aliases.join(', ')}` : ''}${entry.related?.length ? `\nRelated: ${entry.related.join(', ')}` : ''}`;
+    return [
+      entry.term,
+      entry.aliases?.length ? entry.aliases.join(', ') : '',
+      entry.chinese || '',
+      entry.definition || '',
+      entry.related?.length ? entry.related.join(', ') : ''
+    ].filter(Boolean).join('\n');
   }
   function formatOnlineCopy(data) {
     const definitions = (data.definitions || []).map((item) => `${item.partOfSpeech ? `[${item.partOfSpeech}] ` : ''}${item.definition}`).join('\n');
@@ -833,7 +880,7 @@
   }
 
   function handleSelection(event) {
-    if (event.composedPath?.().includes(state.host)) return;
+    if (state.destroyed || event.composedPath?.().includes(state.host)) return;
     setTimeout(() => {
       const selection = window.getSelection();
       const text = selection?.toString().trim();
@@ -855,6 +902,7 @@
   }
 
   async function showBubble(text, rect) {
+    if (state.destroyed) return;
     await ensureRoot(false);
     removeBubble();
     const bubble = el('button', 'dictfloat-bubble', '⌕');
@@ -879,10 +927,12 @@
   }
 
   function minimize() {
+    if (state.destroyed) return;
     state.minimized = true;
     render();
   }
   function restore() {
+    if (state.destroyed) return;
     state.minimized = false;
     render();
     focusSearch();

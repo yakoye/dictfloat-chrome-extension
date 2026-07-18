@@ -191,25 +191,21 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-result-item:hover { background:#f7f9fc; }
 .dark .dictfloat-result-item:hover { background:#202d41; }
 .dictfloat-result-title { font-size: 12px; font-weight: 700; color: inherit; }
-.dictfloat-result-fact { margin-top: 3px; font-size: 10px; line-height: 1.42; color:#718096; word-break:break-word; }
-.dictfloat-result-label { color:#9aa6b7; font-weight:650; }
+.dictfloat-result-summary { margin-top: 3px; font-size: 10px; line-height: 1.42; word-break: break-word; }
 .dictfloat-result-aliases { color:#64748b; }
-.dictfloat-result-preview { color:#d9619a; }
-.dictfloat-result-source { color:#8b98aa; }
-.dark .dictfloat-result-fact { color:#aebbd0; }
-.dark .dictfloat-result-label { color:#8797ad; }
+.dictfloat-result-chinese { color:#d9619a; }
+.dictfloat-result-source { margin-top: 3px; color:#8b98aa; font-size:10px; line-height:1.42; word-break:break-word; }
 .dark .dictfloat-result-aliases { color:#b8c5d8; }
-.dark .dictfloat-result-preview { color:#f3a0c9; }
+.dark .dictfloat-result-chinese { color:#f3a0c9; }
 .dark .dictfloat-result-source { color:#92a2b8; }
 
 .dictfloat-entry-fields { display:grid; gap:4px; margin-top:8px; }
-.dictfloat-entry-field { color:#66778e; font-size:10px; line-height:1.45; word-break:break-word; }
-.dictfloat-entry-label { color:#8b98aa; font-weight:700; }
-.dictfloat-entry-field.cn { color:#dc5b95; font-size:11px; font-weight:650; }
-.dictfloat-entry-field.cn .dictfloat-entry-label { color:inherit; }
-.dark .dictfloat-entry-field { color:#b7c4d6; }
-.dark .dictfloat-entry-label { color:#8e9db2; }
-.dark .dictfloat-entry-field.cn { color:#f3a0c9; }
+.dictfloat-entry-aliases { color:#66778e; font-size:10px; line-height:1.45; word-break:break-word; }
+.dictfloat-entry-chinese { color:#dc5b95; font-size:11px; font-weight:650; line-height:1.45; word-break:break-word; }
+.dictfloat-entry-meta { color:#8b98aa; font-size:10px; line-height:1.45; word-break:break-word; }
+.dark .dictfloat-entry-aliases { color:#b7c4d6; }
+.dark .dictfloat-entry-chinese { color:#f3a0c9; }
+.dark .dictfloat-entry-meta { color:#8e9db2; }
 
 .dictfloat-term-row { display:flex; align-items:center; gap:7px; min-width:0; }
 .dictfloat-term { flex:1; min-width:0; font-size: 14px; font-weight: 750; line-height:1.35; word-break:break-word; }

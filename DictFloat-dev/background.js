@@ -1,4 +1,5 @@
 const MENU_ID = 'dictfloat-lookup-selection';
+const CONTENT_RUNTIME_VERSION = '0.3.2';
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
@@ -38,15 +39,35 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 async function sendToTab(tabId, message) {
   try {
-    await chrome.tabs.sendMessage(tabId, message);
-  } catch (_) {
-    try {
+    const current = await probeContent(tabId);
+    if (!current) {
       await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-      await chrome.tabs.sendMessage(tabId, message);
-    } catch (error) {
-      console.warn('DictFloat cannot run on this page.', error);
+      await waitForCurrentContent(tabId);
     }
+    await chrome.tabs.sendMessage(tabId, message);
+    // A previous extension build may still have a listener in this tab.
+    // Let the current build prune any host it left behind after this action.
+    await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_REPAIR' }).catch(() => undefined);
+  } catch (error) {
+    console.warn('DictFloat cannot run on this page.', error);
   }
+}
+
+async function probeContent(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: 'DICTFLOAT_PING' });
+    return response?.version === CONTENT_RUNTIME_VERSION;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function waitForCurrentContent(tabId) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (await probeContent(tabId)) return;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  }
+  throw new Error('DictFloat content script did not initialize');
 }
 
 async function migrateStorage() {
