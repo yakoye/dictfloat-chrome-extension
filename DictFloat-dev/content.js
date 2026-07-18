@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.9'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.10'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
