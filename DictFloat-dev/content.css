@@ -413,6 +413,39 @@ button { -webkit-appearance: none; appearance: none; }
 }
 
 /* Optional Wudao offline data pack */
+
+/* Compact dictionary-source heading used by the offline Wudao result. */
+.dictfloat-source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dictfloat-source-row .dictfloat-term {
+  flex: 1;
+  min-width: 0;
+}
+.dictfloat-source-badge {
+  flex: 0 0 auto;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border: 1px solid #f2cade;
+  border-radius: 999px;
+  background: #fff4f8;
+  color: #c34d83;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-badge {
+  border-color: #65314c;
+  background: #341d2d;
+  color: #f3a0c9;
+}
+
 .dictfloat-wudao-section { margin-top:11px; padding-top:10px; border-top:1px solid #edf1f5; }
 .dark .dictfloat-wudao-section { border-top-color:#2a374b; }
 .dictfloat-wudao-label { margin-bottom:6px; color:#c34d83; font-size:10px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
@@ -423,3 +456,94 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-wudao-examples { color:#aab8cb; }
 .dictfloat-wudao-example { font-size:11px; line-height:1.45; }
 .dictfloat-wudao-status { padding:7px 0; color:#8b98aa; font-size:11px; }
+
+/* Ordered and collapsible dictionary result sections. Every source shares one
+   compact header, so local glossaries, Wudao, Online, and later MDX lookups
+   remain visually consistent inside the one DictFloat panel. */
+.dictfloat-source-section {
+  margin: 0 0 9px;
+  border: 1px solid #e6ebf2;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #fff;
+}
+.dark .dictfloat-source-section { border-color:#2b394f; background:#151f2e; }
+.dictfloat-source-header {
+  width: 100%;
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 7px 6px 9px;
+  border: 0;
+  background: #fbfcff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.dictfloat-source-header:hover { background:#f5f7fb; }
+.dark .dictfloat-source-header { background:#192537; }
+.dark .dictfloat-source-header:hover { background:#223148; }
+.dictfloat-source-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.dictfloat-source-term {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+.dictfloat-source-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #75849a;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-detail { color:#9eacc0; }
+.dictfloat-source-header .dictfloat-source-badge {
+  flex: 0 0 auto;
+  max-width: 44%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #8896aa;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.dark .dictfloat-source-header .dictfloat-source-badge { background:transparent; border:0; color:#aab7c9; }
+.dictfloat-source-chevron {
+  flex: 0 0 12px;
+  width: 12px;
+  color: #8997aa;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(-1px);
+}
+.dark .dictfloat-source-chevron { color:#9eacc0; }
+.dictfloat-source-body { padding: 3px 3px 4px; }
+.dictfloat-source-section.collapsed .dictfloat-source-header { border-bottom:0; }
+.dictfloat-source-section.local .dictfloat-result-item { padding: 7px 6px; }
+.dictfloat-source-section.local .dictfloat-result-item:hover { background:#f6f8fb; }
+.dark .dictfloat-source-section.local .dictfloat-result-item:hover { background:#202d41; }
+.dictfloat-source-section .dictfloat-inline-actions { justify-content:flex-end; padding:7px 4px 3px; }

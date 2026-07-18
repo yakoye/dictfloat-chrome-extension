@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.4';
+  const RUNTIME_VERSION = '0.3.6';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -40,7 +40,10 @@
     settings: { ...DEFAULT_SETTINGS },
     entries: [],
     dictionaries: [],
+    mdictSources: [],
     history: [],
+    sourceOrder: [],
+    collapsedSources: new Set(),
     position: null,
     online: { query: '', status: 'idle', data: null, error: '' },
     wudao: { query: '', status: 'idle', data: null, error: '' },
@@ -72,15 +75,21 @@
       'dictFloatSettings',
       'dictFloatHistory',
       'dictFloatPanelPosition',
-      'dictFloatWudaoSource'
+      'dictFloatWudaoSource',
+      'dictFloatMdictSources',
+      'dictFloatSourceOrder',
+      'dictFloatCollapsedSources'
     ]);
     if (!isCurrentInstance()) return;
     state.entries = Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries.map(normalizeEntry) : [];
     state.dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
     state.settings = { ...DEFAULT_SETTINGS, ...(data.dictFloatSettings || {}) };
-    state.history = Array.isArray(data.dictFloatHistory) ? data.dictFloatHistory : [];
+    state.mdictSources = normalizeMdictSources(data.dictFloatMdictSources);
+    state.history = normalizeHistory(data.dictFloatHistory, state.entries);
     state.position = data.dictFloatPanelPosition || null;
     state.wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
+    state.sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
+    state.collapsedSources = new Set(Array.isArray(data.dictFloatCollapsedSources) ? data.dictFloatCollapsedSources.map(String) : []);
 
     document.addEventListener('mouseup', handleSelection, true);
     document.addEventListener('keydown', handleGlobalKeys, true);
@@ -113,11 +122,14 @@
     if (!isCurrentInstance() || areaName !== 'local') return;
     if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue.map(normalizeEntry) : [];
     if (changes.dictFloatDictionaries) state.dictionaries = normalizeDictionaries(changes.dictFloatDictionaries.newValue);
-    if (changes.dictFloatHistory) state.history = Array.isArray(changes.dictFloatHistory.newValue) ? changes.dictFloatHistory.newValue : [];
+    if (changes.dictFloatMdictSources) state.mdictSources = normalizeMdictSources(changes.dictFloatMdictSources.newValue);
+    if (changes.dictFloatHistory) state.history = normalizeHistory(changes.dictFloatHistory.newValue, state.entries);
     if (changes.dictFloatSettings) state.settings = { ...DEFAULT_SETTINGS, ...(changes.dictFloatSettings.newValue || {}) };
     if (changes.dictFloatPanelPosition) state.position = changes.dictFloatPanelPosition.newValue || null;
     if (changes.dictFloatWudaoSource) state.wudaoSource = normalizeWudaoSource(changes.dictFloatWudaoSource.newValue);
-    if (state.host?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatHistory || changes.dictFloatSettings || changes.dictFloatPanelPosition || changes.dictFloatWudaoSource)) render();
+    if (changes.dictFloatSourceOrder) state.sourceOrder = normalizeSourceOrder(changes.dictFloatSourceOrder.newValue);
+    if (changes.dictFloatCollapsedSources) state.collapsedSources = new Set(Array.isArray(changes.dictFloatCollapsedSources.newValue) ? changes.dictFloatCollapsedSources.newValue.map(String) : []);
+    if (state.host?.isConnected && (changes.dictFloatEntries || changes.dictFloatDictionaries || changes.dictFloatMdictSources || changes.dictFloatHistory || changes.dictFloatSettings || changes.dictFloatPanelPosition || changes.dictFloatWudaoSource || changes.dictFloatSourceOrder || changes.dictFloatCollapsedSources)) render();
   }
 
   function destroyInstance() {
@@ -453,8 +465,6 @@
       const entry = state.entries.find((item) => item.id === state.selectedId);
       if (entry) {
         fillEntry(box, entry);
-        appendWudaoSection(box);
-        appendOnlineSection(box);
         return;
       }
       state.selectedId = null;
@@ -465,12 +475,78 @@
       return;
     }
 
-    queryEntries(state.query).forEach((entry) => box.append(resultItem(entry)));
-    appendWudaoSection(box);
-    appendOnlineSection(box);
+    appendOrderedLookupSections(box);
   }
 
-  function resultItem(entry) {
+  function appendOrderedLookupSections(box) {
+    const query = state.query.trim();
+    let appended = 0;
+    for (const source of orderedLookupSources()) {
+      if (source.kind === 'glossary') {
+        const entries = queryEntriesForDictionary(query, source.id);
+        if (entries.length) {
+          appendGlossarySection(box, source, entries);
+          appended += 1;
+        }
+        continue;
+      }
+      if (source.kind === 'wudao') {
+        appended += appendWudaoSection(box, source) ? 1 : 0;
+        continue;
+      }
+      if (source.kind === 'online') {
+        appended += appendOnlineSection(box, source) ? 1 : 0;
+      }
+      // MDX sources already participate in order management. They are not
+      // rendered until their entry decoder is available, so this build never
+      // shows a misleading empty card for an imported dictionary.
+    }
+    if (!appended && query) box.append(el('div', 'dictfloat-empty', 'No result yet.'));
+  }
+
+  function appendGlossarySection(box, source, entries) {
+    const section = createSourceSection({
+      key: source.key,
+      term: source.name,
+      detail: entries.length === 1 ? entries[0].term : `${entries.length} matches`,
+      badge: 'Local glossary',
+      tone: 'local'
+    });
+    entries.forEach((entry) => section.body.append(resultItem(entry, { showSource: false })));
+    box.append(section.node);
+  }
+
+  function createSourceSection({ key, term, detail = '', badge = '', tone = '' }) {
+    const collapsed = state.collapsedSources.has(key);
+    const section = el('section', `dictfloat-source-section${collapsed ? ' collapsed' : ''}${tone ? ` ${tone}` : ''}`);
+    const header = el('button', 'dictfloat-source-header');
+    header.type = 'button';
+    header.setAttribute('aria-expanded', String(!collapsed));
+    header.title = collapsed ? 'Expand dictionary result' : 'Collapse dictionary result';
+
+    const left = el('span', 'dictfloat-source-left');
+    left.append(el('span', 'dictfloat-source-term', term));
+    if (detail) left.append(el('span', 'dictfloat-source-detail', detail));
+    const badgeNode = el('span', 'dictfloat-source-badge', badge);
+    const chevron = el('span', 'dictfloat-source-chevron', collapsed ? '›' : '⌄');
+    header.append(left, badgeNode, chevron);
+    header.addEventListener('click', () => toggleSourceCollapse(key));
+
+    const body = el('div', 'dictfloat-source-body');
+    body.hidden = collapsed;
+    section.append(header, body);
+    return { node: section, body };
+  }
+
+  async function toggleSourceCollapse(key) {
+    const stringKey = String(key);
+    if (state.collapsedSources.has(stringKey)) state.collapsedSources.delete(stringKey);
+    else state.collapsedSources.add(stringKey);
+    await storage.set({ dictFloatCollapsedSources: [...state.collapsedSources] });
+    renderContentOnly();
+  }
+
+  function resultItem(entry, { showSource = true } = {}) {
     const item = el('article', 'dictfloat-result-item');
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
@@ -484,8 +560,10 @@
     }
     if (summary.childNodes.length) item.append(summary);
 
-    const dictionary = dictionaryFor(entry.dictionaryId);
-    item.append(el('div', 'dictfloat-result-source', dictionary?.name || 'Local glossary'));
+    if (showSource) {
+      const dictionary = dictionaryFor(entry.dictionaryId);
+      item.append(el('div', 'dictfloat-result-source', dictionary?.name || 'Local glossary'));
+    }
     const openItem = () => showEntry(entry);
     item.addEventListener('click', openItem);
     item.addEventListener('keydown', (event) => {
@@ -513,7 +591,7 @@
     state.selectedId = entry.id;
     state.query = entry.term;
     state.draftEntry = null;
-    void addHistory(entry);
+    void addHistoryQuery(entry.term);
     render();
   }
 
@@ -599,107 +677,112 @@
     renderContentOnly();
   }
 
-  function appendWudaoSection(box) {
+  function appendWudaoSection(box, source = { key: 'wudao', name: 'Wudao · Offline' }) {
     const lookup = state.wudao;
-    if (!state.query.trim() || !state.wudaoSource.installed || !state.wudaoSource.enabled || lookup.query !== state.query.trim()) return;
-    const section = el('section', 'dictfloat-wudao-section');
-    if (lookup.status === 'loading') {
-      section.append(el('div', 'dictfloat-wudao-status', 'Searching Wudao offline…'));
-      box.append(section);
-      return;
-    }
-    if (lookup.status === 'error') {
+    if (!state.query.trim() || !state.wudaoSource.installed || !state.wudaoSource.enabled || lookup.query !== state.query.trim()) return false;
+    const data = lookup.data || {};
+    const section = createSourceSection({
+      key: source.key,
+      term: data.term || state.query,
+      detail: formatWudaoPhonetic(data.phonetic || ''),
+      badge: 'Wudao · Offline',
+      tone: 'wudao'
+    });
+
+    if (lookup.status === 'loading') section.body.append(el('div', 'dictfloat-wudao-status', 'Searching Wudao offline…'));
+    else if (lookup.status === 'error') {
       const status = el('div', 'dictfloat-wudao-status', 'Wudao offline lookup is unavailable.');
       status.title = lookup.error || '';
-      section.append(status);
-      box.append(section);
-      return;
+      section.body.append(status);
+    } else if (lookup.status === 'done' && lookup.data) {
+      if (data.definitions?.length) {
+        const definitions = el('div', 'dictfloat-wudao-definitions');
+        data.definitions.slice(0, 8).forEach((definition) => definitions.append(el('div', 'dictfloat-wudao-definition', definition)));
+        section.body.append(definitions);
+      }
+      if (data.examples?.length) {
+        const examples = el('div', 'dictfloat-wudao-examples');
+        data.examples.slice(0, 2).forEach((example) => examples.append(el('div', 'dictfloat-wudao-example', example)));
+        section.body.append(examples);
+      }
+      if (!data.definitions?.length) section.body.append(el('div', 'dictfloat-wudao-status', 'No offline definition was returned for this query.'));
+      const actions = el('div', 'dictfloat-inline-actions');
+      const save = el('button', '', '+ Save');
+      save.type = 'button';
+      save.addEventListener('click', () => {
+        state.draftEntry = wudaoToDraft(data);
+        state.editingId = null;
+        state.selectedId = null;
+        state.view = 'add';
+        renderContentOnly();
+      });
+      const copy = el('button', '', 'Copy');
+      copy.type = 'button';
+      copy.addEventListener('click', () => copyText(formatWudaoCopy(data), copy));
+      actions.append(save, copy);
+      section.body.append(actions);
     }
-    if (lookup.status !== 'done' || !lookup.data) return;
-    const data = lookup.data;
-    section.append(el('div', 'dictfloat-wudao-label', 'Wudao · Offline'));
-    section.append(el('div', 'dictfloat-term', data.term || state.query));
-    if (data.phonetic) section.append(el('div', 'dictfloat-subtitle', data.phonetic));
-    if (data.definitions?.length) {
-      const definitions = el('div', 'dictfloat-wudao-definitions');
-      data.definitions.slice(0, 8).forEach((definition) => definitions.append(el('div', 'dictfloat-wudao-definition', definition)));
-      section.append(definitions);
-    }
-    if (data.examples?.length) {
-      const examples = el('div', 'dictfloat-wudao-examples');
-      data.examples.slice(0, 2).forEach((example) => examples.append(el('div', 'dictfloat-wudao-example', example)));
-      section.append(examples);
-    }
-    if (!data.definitions?.length) section.append(el('div', 'dictfloat-wudao-status', 'No offline definition was returned for this query.'));
-    const actions = el('div', 'dictfloat-inline-actions');
-    const save = el('button', '', '+ Save');
-    save.type = 'button';
-    save.addEventListener('click', () => {
-      state.draftEntry = wudaoToDraft(data);
-      state.editingId = null;
-      state.selectedId = null;
-      state.view = 'add';
-      renderContentOnly();
-    });
-    const copy = el('button', '', 'Copy');
-    copy.type = 'button';
-    copy.addEventListener('click', () => copyText(formatWudaoCopy(data), copy));
-    actions.append(save, copy);
-    section.append(actions);
-    box.append(section);
+    box.append(section.node);
+    return true;
   }
 
-  function appendOnlineSection(box) {
+  function appendOnlineSection(box, source = { key: 'online', name: 'Online' }) {
     const online = state.online;
-    if (!state.query.trim() || !state.settings.onlineLookup || online.query !== state.query.trim()) return;
-    const section = el('section', 'dictfloat-online-section');
-    if (online.status === 'loading') {
-      section.append(el('div', 'dictfloat-online-status', 'Searching online…'));
-      box.append(section);
-      return;
-    }
-    if (online.status === 'error') {
+    if (!state.query.trim() || !state.settings.onlineLookup || online.query !== state.query.trim()) return false;
+    const data = online.data || {};
+    const section = createSourceSection({
+      key: source.key,
+      term: data.term || state.query,
+      detail: data.phonetic || '',
+      badge: 'Online',
+      tone: 'online'
+    });
+
+    if (online.status === 'loading') section.body.append(el('div', 'dictfloat-online-status', 'Searching online…'));
+    else if (online.status === 'error') {
       const status = el('div', 'dictfloat-online-status', 'Online lookup is unavailable right now.');
       status.title = online.error || '';
-      section.append(status);
-      box.append(section);
-      return;
-    }
-    if (online.status !== 'done' || !online.data) return;
-
-    const data = online.data;
-    section.append(el('div', 'dictfloat-online-label', 'Online'));
-    section.append(el('div', 'dictfloat-term', data.term || state.query));
-    if (data.phonetic) section.append(el('div', 'dictfloat-subtitle', data.phonetic));
-    if (data.translation) section.append(el('div', 'dictfloat-cn', data.translation));
-    if (data.definitions?.length) {
-      const definitions = el('div', 'dictfloat-online-definitions');
-      data.definitions.slice(0, 4).forEach((item) => {
-        const line = el('div', 'dictfloat-online-definition');
-        if (item.partOfSpeech) line.append(el('span', 'dictfloat-pos', item.partOfSpeech));
-        line.append(document.createTextNode(item.definition));
-        definitions.append(line);
+      section.body.append(status);
+    } else if (online.status === 'done' && online.data) {
+      if (data.translation) section.body.append(el('div', 'dictfloat-cn', data.translation));
+      if (data.definitions?.length) {
+        const definitions = el('div', 'dictfloat-online-definitions');
+        data.definitions.slice(0, 4).forEach((item) => {
+          const line = el('div', 'dictfloat-online-definition');
+          if (item.partOfSpeech) line.append(el('span', 'dictfloat-pos', item.partOfSpeech));
+          line.append(document.createTextNode(item.definition));
+          definitions.append(line);
+        });
+        section.body.append(definitions);
+      }
+      if (!data.translation && !data.definitions?.length) section.body.append(el('div', 'dictfloat-online-status', 'No online definition was returned for this query.'));
+      const actions = el('div', 'dictfloat-inline-actions');
+      const save = el('button', '', '+ Save');
+      save.type = 'button';
+      save.addEventListener('click', () => {
+        state.draftEntry = onlineToDraft(data);
+        state.editingId = null;
+        state.view = 'add';
+        renderContentOnly();
       });
-      section.append(definitions);
+      const copy = el('button', '', 'Copy');
+      copy.type = 'button';
+      copy.addEventListener('click', () => copyText(formatOnlineCopy(data), copy));
+      actions.append(save, copy);
+      section.body.append(actions);
     }
-    if (!data.translation && !data.definitions?.length) section.append(el('div', 'dictfloat-online-status', 'No online definition was returned for this query.'));
-    section.append(el('div', 'dictfloat-meta', data.providers?.join(' · ') || 'Online lookup'));
+    box.append(section.node);
+    return true;
+  }
 
-    const actions = el('div', 'dictfloat-inline-actions');
-    const save = el('button', '', '+ Save');
-    save.type = 'button';
-    save.addEventListener('click', () => {
-      state.draftEntry = onlineToDraft(data);
-      state.editingId = null;
-      state.view = 'add';
-      renderContentOnly();
-    });
-    const copy = el('button', '', 'Copy');
-    copy.type = 'button';
-    copy.addEventListener('click', () => copyText(formatOnlineCopy(data), copy));
-    actions.append(save, copy);
-    section.append(actions);
-    box.append(section);
+  function formatWudaoPhonetic(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text.split(' · ').map((item) => {
+      const clean = item.trim();
+      if (!clean) return '';
+      return clean.startsWith('[') || clean.startsWith('/') ? clean : `[${clean}]`;
+    }).filter(Boolean).join(' · ');
   }
 
   function fillHistory(box) {
@@ -716,8 +799,15 @@
     head.append(clear);
     box.append(head);
     state.history.forEach((item) => {
-      const entry = state.entries.find((entry) => entry.id === item.id);
-      if (entry) box.append(resultItem(entry));
+      const query = String(item.query || '').trim();
+      if (!query) return;
+      const button = el('button', 'dictfloat-history-item');
+      button.type = 'button';
+      button.append(el('span', 'dictfloat-history-query', query));
+      const when = el('span', 'dictfloat-history-time', relativeTime(item.at));
+      button.append(when);
+      button.addEventListener('click', () => lookup(query, { fromHistory: true }));
+      box.append(button);
     });
   }
 
@@ -857,7 +947,7 @@
     fillAddForm(box, entry);
   }
 
-  function lookup(raw) {
+  function lookup(raw, { fromHistory = false } = {}) {
     const query = String(raw || '').trim();
     state.query = query;
     state.view = 'lookup';
@@ -868,14 +958,7 @@
     state.formReturnState = null;
     state.online = { query, status: state.settings.onlineLookup && query ? 'loading' : 'idle', data: null, error: '' };
     state.wudao = { query, status: state.wudaoSource.installed && state.wudaoSource.enabled && query ? 'loading' : 'idle', data: null, error: '' };
-    const best = queryEntries(query)[0];
-    if (best) {
-      // A direct lookup opens the best entry, but Return must still show the
-      // matching result list rather than a blank / stacked old panel.
-      state.returnState = { view: 'lookup', query, scrollTop: 0 };
-      state.selectedId = best.id;
-      void addHistory(best);
-    }
+    if (query) void addHistoryQuery(query);
     render();
     if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query);
     if (state.settings.onlineLookup && query) void lookupOnline(query);
@@ -908,8 +991,10 @@
     renderContentOnly();
   }
 
-  async function addHistory(entry) {
-    state.history = [{ id: entry.id, at: Date.now() }, ...state.history.filter((item) => item.id !== entry.id)].slice(0, 50);
+  async function addHistoryQuery(rawQuery) {
+    const query = String(rawQuery || '').trim();
+    if (!query) return;
+    state.history = [{ query, at: Date.now() }, ...state.history.filter((item) => normalize(item.query) !== normalize(query))].slice(0, 50);
     await storage.set({ dictFloatHistory: state.history });
   }
 
@@ -920,13 +1005,59 @@
   function queryEntries(raw) {
     const enabled = new Set(state.dictionaries.filter((dictionary) => dictionary.enabled !== false).map((dictionary) => dictionary.id));
     const visible = state.entries.filter((entry) => enabled.has(entry.dictionaryId));
+    return scoreEntries(visible, raw);
+  }
+
+  function queryEntriesForDictionary(raw, dictionaryId) {
+    const dictionary = dictionaryFor(dictionaryId);
+    if (!dictionary || dictionary.enabled === false) return [];
+    return scoreEntries(state.entries.filter((entry) => entry.dictionaryId === dictionaryId), raw);
+  }
+
+  function scoreEntries(entries, raw) {
     const query = normalize(raw);
-    if (!query) return visible.filter((entry) => entry.favorite).concat(visible.filter((entry) => !entry.favorite)).slice(0, 20);
-    return visible
+    if (!query) return entries.filter((entry) => entry.favorite).concat(entries.filter((entry) => !entry.favorite)).slice(0, 20);
+    return entries
       .map((entry) => ({ entry, score: score(entry, query) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || a.entry.term.localeCompare(b.entry.term))
       .map((item) => item.entry);
+  }
+
+  function knownLookupSources() {
+    const local = state.dictionaries.map((dictionary) => ({
+      key: `glossary:${dictionary.id}`,
+      kind: 'glossary',
+      id: dictionary.id,
+      name: dictionary.name,
+      enabled: dictionary.enabled !== false
+    }));
+    const sources = [...local];
+    if (state.wudaoSource.installed) sources.push({ key: 'wudao', kind: 'wudao', id: 'wudao', name: 'Wudao · Offline', enabled: state.wudaoSource.enabled });
+    state.mdictSources.forEach((source) => sources.push({ key: `mdx:${source.id}`, kind: 'mdx', id: source.id, name: source.name, enabled: source.enabled !== false }));
+    sources.push({ key: 'online', kind: 'online', id: 'online', name: 'Online', enabled: state.settings.onlineLookup });
+    return sources;
+  }
+
+  function normalizeSourceOrder(input) {
+    const available = knownLookupSources().map((source) => source.key);
+    const requested = Array.isArray(input) ? input.map(String) : [];
+    return [...requested.filter((key) => available.includes(key)), ...available.filter((key) => !requested.includes(key))];
+  }
+
+  function orderedLookupSources() {
+    const sourceMap = new Map(knownLookupSources().map((source) => [source.key, source]));
+    const order = normalizeSourceOrder(state.sourceOrder);
+    if (order.join('|') !== state.sourceOrder.join('|')) state.sourceOrder = order;
+    return order.map((key) => sourceMap.get(key)).filter((source) => source && source.enabled !== false);
+  }
+
+  function relativeTime(time) {
+    const delta = Math.max(0, Date.now() - Number(time || 0));
+    if (delta < 60_000) return 'just now';
+    if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
+    if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
+    return `${Math.floor(delta / 86_400_000)}d`;
   }
 
   function score(entry, query) {
@@ -947,6 +1078,31 @@
     if (tags.some((item) => item.includes(query))) return 42;
     if (definition.includes(query)) return 20;
     return 0;
+  }
+
+  function normalizeHistory(input, entries) {
+    const seen = new Set();
+    const resolved = [];
+    for (const item of Array.isArray(input) ? input : []) {
+      const legacy = item?.id ? entries.find((entry) => entry.id === item.id)?.term : '';
+      const query = String(item?.query || legacy || '').trim();
+      const key = normalize(query);
+      if (!query || seen.has(key)) continue;
+      seen.add(key);
+      resolved.push({ query, at: Number(item?.at || Date.now()) });
+    }
+    return resolved.slice(0, 50);
+  }
+
+  function normalizeMdictSources(input) {
+    return Array.isArray(input) ? input.filter(Boolean).map((source) => ({
+      id: String(source.id || crypto.randomUUID()),
+      name: String(source.name || source.fileName || 'Untitled MDX dictionary'),
+      enabled: source.enabled !== false,
+      status: String(source.status || 'header-ready'),
+      fileName: String(source.fileName || ''),
+      mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles : []
+    })) : [];
   }
 
   function normalizeWudaoSource(source) {

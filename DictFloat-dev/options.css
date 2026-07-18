@@ -93,3 +93,24 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
 .wudao-status { margin-top:4px; color:#687991; font-size:11px; line-height:1.45; }
 .wudao-ready { color:#16835b; font-weight:650; }
 .dark .wudao-ready { color:#75d5a9; }
+
+/* Lookup order rows */
+.source-order-item { align-items:center; }
+.source-order-index {
+  width:20px;
+  height:20px;
+  min-width:20px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #e0e7f0;
+  border-radius:50%;
+  background:#f6f8fc;
+  color:#718198;
+  font-size:10px;
+  font-weight:700;
+}
+.order-actions { gap:4px; }
+.order-actions button { width:28px; min-width:28px; padding:3px 0; }
+.order-actions button:disabled { cursor:default; opacity:.42; }
+.dark .source-order-index { border-color:#3b4b64; background:#1d2a3e; color:#b7c4d6; }

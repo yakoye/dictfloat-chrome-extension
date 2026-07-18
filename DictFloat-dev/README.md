@@ -1,46 +1,89 @@
-# DictFloat v0.3.4
+# DictFloat v0.3.6
 
-Compact Chrome floating dictionary for local technical glossaries, selection lookup, online fallback, and optional offline Wudao data.
+Compact Chrome floating dictionary for selected-text lookup, local professional glossaries, Wudao offline data, and online fallback.
 
-## v0.3.4 highlights / 本版重点
+## v0.3.6 highlights / 本版重点
 
-- **Single-window rewrite / 单窗口重构**: all entry points now reuse one document-owned DictFloat root. Lookup, detail, History, Add, Edit, Return, minimize, and restore only switch the content inside that one panel.
-- **Stale-script guard / 旧脚本防护**: each injected runtime receives a document-level ownership token. After an extension refresh or reinjection, earlier listeners become inactive and cannot create another floating window.
-- **Return restores the prior page / Return 恢复原页面**: Return restores the originating result list or History view inside the same panel, including its previous search query and scroll position.
+### Ordered lookup sources / 查询来源排序
 
-- **Optional Wudao offline pack**: DictFloat now understands the Wudao-dict four-file layout: `en.ind`, `en.z`, `zh.ind`, and `zh.z`.
-- **Real local lookup**: after a user imports those four files, English–Chinese and Chinese–English entries are queried locally. The extension reads the index offsets, opens only the needed compressed record, decompresses it in the extension worker, and renders the definition in the floating panel.
-- **No bundled Wudao data**: the data pack is deliberately not copied into this ZIP. It must be selected from a local copy the user is permitted to use. Imported files are held only in DictFloat's IndexedDB and can be removed from Settings at any time.
-- **Local-data control**: Settings shows pack status, entry counts, stored size, a per-pack enable switch, and a remove action.
-- **Save Wudao results**: an offline Wudao result can be copied or saved into any writable DictFloat glossary, then edited like any other local term.
+- A new **Lookup order** section is available in Settings.
+- Use **↑ / ↓** to decide the display priority of:
+  - each local glossary, such as PCIe Starter, GPU, Firmware, or My Glossary;
+  - Wudao · Offline;
+  - every imported MDX / MDD source;
+  - Online fallback.
+- The order is stored locally and included in JSON backup/export.
+- A query now renders matching sources from top to bottom in the order you choose.
 
-## Existing features / 已有功能
+### Collapsible dictionary sections / 词典结果可折叠
 
-- Toolbar icon opens one compact, draggable floating window by default.
-- Small 12px default UI with light, dark, and Follow Chrome modes.
-- Selected-text lookup bubble or optional automatic lookup.
-- Local multi-glossary search: aliases, Chinese text, tags, related terms, and definitions are searchable.
-- Local entry creation, editing, favorites, copying, history, JSON backup, and CSV import/export.
-- Online English definition and Chinese/English translation fallback; saved online results can become local entries.
-- MDX / MDD intake: Settings can read MDX header metadata and record MDX/MDD source pairs.
+- Every source is rendered as one compact expandable section inside the **same DictFloat window**.
+- Click the source header to collapse or expand it.
+- Collapse state is saved locally, so a source stays folded until you expand it again.
+- This is designed for multi-dictionary results: keep the dictionary you are reading open and fold the rest.
 
-## Wudao offline workflow / 无道词典离线包流程
+### Unified result headers / 统一的结果标题行
 
-1. Obtain a local copy of the Wudao-dict data files through a source you are permitted to use.
-2. In the local copy, open `wudao-dict/dict`.
-3. Open **DictFloat Settings** → **Wudao offline dictionary**.
-4. Click **Import Wudao files** and select all four files together:
-   - `en.ind`
-   - `en.z`
-   - `zh.ind`
-   - `zh.z`
-5. Once the status says **Ready for offline lookup**, query an English or Chinese word in DictFloat and press Enter.
+- Wudao results use one compact header line:
 
-The import copies the selected data files into the browser profile's DictFloat IndexedDB so lookup continues working after the Settings page closes. Remove local pack deletes that copy only; it does not change the source files you selected.
+  ```text
+  girl   [ɡɝl] · [gɜːl]                 Wudao · Offline
+  ```
+
+- Online results use the same structure:
+
+  ```text
+  girl   /ɡɜːl/                                   Online
+  ```
+
+- The source remains on the right; the term and pronunciation stay on the left.
+
+### History now records the query / History 记录查询词
+
+- Search-box Enter, selection lookup, right-click lookup, related-term lookup, and History re-query all keep a single deduplicated query record.
+- History stores query words such as `girl`, `MPS`, and `Completion Timeout`, rather than depending on one local glossary entry.
+- Clicking a History item re-runs the lookup in the same floating window.
+
+### Single-window stability / 单窗口稳定性
+
+- The content-runtime version is now aligned with the extension manifest/background runtime.
+- Lookup, detail, Return, History, Add, Edit, minimize, and restore use one document-owned DictFloat root and one panel.
+- Return restores the earlier source-result view instead of stacking another panel.
+
+### MDX / MDD import improvement / MDX / MDD 导入改进
+
+- Settings now supports **Import dictionary folder** as well as manual multi-file selection.
+- Multi-part resources such as `TLD.mdd`, `TLD.1.mdd` … `TLD.6.mdd` and Oxford-style `.mdd`, `.1.mdd`, `.2.mdd` are grouped with the matching MDX source.
+- Imported MDX / MDD sources appear in Lookup order and can be positioned now.
+- **Important:** v0.3.6 still does not decode MDX key/record blocks or render MDX entries. It only handles source metadata, source grouping, enable/disable controls, and order. The next decoder stage is the real MDX lookup implementation.
+
+## Existing capabilities / 已有功能
+
+- Toolbar icon opens a compact, draggable floating window.
+- Default 12px typography; Light, Dark, and Follow Chrome themes.
+- Selected-text lookup bubble or optional auto-open behavior.
+- Local multi-glossary search across term, aliases, Chinese text, tags, related terms, and definitions.
+- Local entry creation, edit, delete, favorite, copy, JSON backup, and CSV import/export.
+- Wudao offline English–Chinese / Chinese–English data pack support.
+- Online English definition plus Chinese/English translation fallback without an API key.
+
+## Wudao offline workflow / 无道离线包
+
+1. In Settings, open **Wudao offline dictionary**.
+2. Click **Import Wudao files**.
+3. Select all four files together: `en.ind`, `en.z`, `zh.ind`, and `zh.z`.
+4. Once the panel says **Ready for offline lookup**, query a word in DictFloat.
+
+The selected files are copied to DictFloat's local IndexedDB. Removing the pack removes only DictFloat's local copy, not the original files on your computer.
 
 ## MDX / MDD beta workflow / MDX / MDD 测试流程
 
-Open **Settings** → **MDX / MDD dictionaries** → **Add MDX / MDD files**. Select one `.mdx` and its matching `.mdd` resources in the same picker. DictFloat currently reads metadata locally and lists the source. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources.
+1. Open **Settings** → **MDX / MDD dictionaries**.
+2. Use **Import dictionary folder** for a complete dictionary folder, or select one `.mdx` with its matching `.mdd` files.
+3. DictFloat reads headers and associates multi-part MDD resources.
+4. Use **Lookup order** to place that dictionary in the future display order.
+
+For dictionaries with external `.js`, the scripts are never executed. CSS, fonts, images, audio, and actual MDX entry rendering belong to later decoder/resource stages.
 
 ## Installation / 安装
 
@@ -48,4 +91,4 @@ Open **Settings** → **MDX / MDD dictionaries** → **Add MDX / MDD files**. Se
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select the extracted folder.
-5. After an update, use the refresh button on the DictFloat extension card, then refresh any test page.
+5. After an update, use the refresh button on the DictFloat card and refresh any currently open test page.

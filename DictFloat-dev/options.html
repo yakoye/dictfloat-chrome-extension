@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.3.4</div>
+      <div class="version">v0.3.6</div>
     </header>
 
     <section class="card">
@@ -42,6 +42,12 @@
       <div id="dictionaryList" class="dictionary-list"></div>
     </section>
 
+    <section class="card" id="lookupOrderCard">
+      <h2>Lookup order</h2>
+      <p class="hint">DictFloat shows matching dictionaries from top to bottom. Use ↑ and ↓ to choose what appears first. In the floating window, each dictionary result can be collapsed independently.</p>
+      <div id="sourceOrderList" class="dictionary-list source-list"></div>
+    </section>
+
     <section class="card" id="wudaoCard">
       <div class="section-title"><div><h2>Wudao offline dictionary <span class="beta-chip">Optional</span></h2><p class="hint">Import a local Wudao-style data pack. DictFloat keeps the four selected files in its own local IndexedDB and reads them offline.</p></div></div>
       <div class="actions"><label class="file-btn source-file-btn">Import Wudao files<input id="importWudaoFiles" type="file" accept=".ind,.z" multiple></label><button id="removeWudaoPack" class="danger" type="button">Remove local pack</button></div>
@@ -50,9 +56,9 @@
     </section>
 
     <section class="card">
-      <div class="section-title"><div><h2>MDX / MDD dictionaries <span class="beta-chip">Beta</span></h2><p class="hint">This first v0.3 step reads local MDX header metadata and records MDX / MDD pairs as independent sources. Full entry indexing and definition rendering are the next decoder step.</p></div></div>
-      <label class="file-btn source-file-btn">Add MDX / MDD files<input id="importMdictFiles" type="file" accept=".mdx,.mdd" multiple></label>
-      <p class="hint">Select one <code>.mdx</code> file and any matching <code>.mdd</code> resource files together. Files are inspected locally; this build stores source metadata only, not a copied multi-GB dictionary file.</p>
+      <div class="section-title"><div><h2>MDX / MDD dictionaries <span class="beta-chip">Beta</span></h2><p class="hint">MDX / MDD sources now participate in the shared lookup order. The current decoder phase reads headers and groups matching resource files; actual entry indexing is the next implementation stage.</p></div></div>
+      <div class="actions"><label class="file-btn source-file-btn">Add MDX / MDD files<input id="importMdictFiles" type="file" accept=".mdx,.mdd" multiple></label><label class="file-btn source-file-btn">Import dictionary folder<input id="importMdictFolder" type="file" webkitdirectory directory multiple></label></div>
+      <p class="hint">For multi-part resources, select the folder or select the main <code>.mdx</code> plus matching <code>.mdd</code>, <code>.1.mdd</code>, <code>.2.mdd</code> files together. JavaScript inside a dictionary folder is never executed.</p>
       <div id="mdictSourceList" class="dictionary-list source-list"></div>
     </section>
 

@@ -12,6 +12,7 @@ let entries = [];
 let dictionaries = [];
 let mdictSources = [];
 let wudaoSource = null;
+let sourceOrder = [];
 
 void init();
 
@@ -21,13 +22,15 @@ async function init() {
     'dictFloatEntries',
     'dictFloatDictionaries',
     'dictFloatMdictSources',
-    'dictFloatWudaoSource'
+    'dictFloatWudaoSource',
+    'dictFloatSourceOrder'
   ]);
   const settings = { ...defaults, ...(data.dictFloatSettings || {}) };
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
   mdictSources = Array.isArray(data.dictFloatMdictSources) ? data.dictFloatMdictSources.map(normalizeMdictSource) : [];
   wudaoSource = normalizeWudaoSource(data.dictFloatWudaoSource);
+  sourceOrder = normalizeSourceOrder(data.dictFloatSourceOrder);
 
   for (const key of Object.keys(defaults)) {
     const element = $(key);
@@ -40,6 +43,7 @@ async function init() {
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('addDictionary').addEventListener('click', addDictionary);
   $('importMdictFiles').addEventListener('change', importMdictFiles);
+  $('importMdictFolder').addEventListener('change', importMdictFiles);
   $('importWudaoFiles').addEventListener('change', importWudaoFiles);
   $('removeWudaoPack').addEventListener('click', removeWudaoPack);
   $('exportJson').addEventListener('click', exportJson);
@@ -50,11 +54,13 @@ async function init() {
   renderDictionaries();
   renderMdictSources();
   renderWudaoSource();
+  renderSourceOrder();
   await chrome.storage.local.set({
     dictFloatDictionaries: dictionaries,
     dictFloatEntries: entries,
     dictFloatMdictSources: mdictSources,
-    dictFloatWudaoSource: wudaoSource
+    dictFloatWudaoSource: wudaoSource,
+    dictFloatSourceOrder: sourceOrder
   });
 }
 
@@ -121,6 +127,7 @@ async function addDictionary() {
   dictionaries.push({ id: crypto.randomUUID(), name: name.trim(), enabled: true, builtIn: false, createdAt: Date.now() });
   await saveDictionaries();
   renderDictionaries();
+  renderSourceOrder();
   status(`Created “${name.trim()}”.`);
 }
 
@@ -130,6 +137,7 @@ async function renameDictionary(dictionary) {
   dictionary.name = name.trim();
   await saveDictionaries();
   renderDictionaries();
+  renderSourceOrder();
   status('Glossary renamed.');
 }
 
@@ -138,13 +146,97 @@ async function deleteDictionary(dictionary) {
   if (!confirm(`Delete “${dictionary.name}” and its ${count} local ${count === 1 ? 'entry' : 'entries'}?`)) return;
   entries = entries.filter((entry) => entry.dictionaryId !== dictionary.id);
   dictionaries = dictionaries.filter((item) => item.id !== dictionary.id);
-  await chrome.storage.local.set({ dictFloatEntries: entries, dictFloatDictionaries: dictionaries });
+  sourceOrder = normalizeSourceOrder(sourceOrder);
+  await chrome.storage.local.set({ dictFloatEntries: entries, dictFloatDictionaries: dictionaries, dictFloatSourceOrder: sourceOrder });
   renderDictionaries();
+  renderSourceOrder();
   status('Glossary deleted.');
 }
 
 async function saveDictionaries() {
-  await chrome.storage.local.set({ dictFloatDictionaries: dictionaries });
+  sourceOrder = normalizeSourceOrder(sourceOrder);
+  await chrome.storage.local.set({ dictFloatDictionaries: dictionaries, dictFloatSourceOrder: sourceOrder });
+  renderSourceOrder();
+}
+
+function sourceKeyForGlossary(dictionary) { return `glossary:${dictionary.id}`; }
+function sourceKeyForMdict(source) { return `mdx:${source.id}`; }
+
+function knownLookupSources() {
+  const sources = dictionaries.map((dictionary) => ({
+    key: sourceKeyForGlossary(dictionary),
+    type: 'Glossary',
+    name: dictionary.name,
+    meta: `${entries.filter((entry) => entry.dictionaryId === dictionary.id).length} local entries`,
+    enabled: dictionary.enabled !== false
+  }));
+  if (wudaoSource?.installed) {
+    sources.push({
+      key: 'wudao', type: 'Offline', name: 'Wudao · Offline',
+      meta: wudaoSource.enabled ? 'Enabled for offline lookup' : 'Disabled',
+      enabled: wudaoSource.enabled
+    });
+  }
+  mdictSources.forEach((source) => sources.push({
+    key: sourceKeyForMdict(source), type: 'MDX / MDD', name: source.name,
+    meta: source.status === 'ready' ? 'Ready for lookup' : 'Header imported · decoder in progress',
+    enabled: source.enabled !== false
+  }));
+  sources.push({ key: 'online', type: 'Online', name: 'Online', meta: 'Public online fallback', enabled: $('onlineLookup')?.checked !== false });
+  return sources;
+}
+
+function normalizeSourceOrder(input) {
+  const available = knownLookupSources().map((source) => source.key);
+  const requested = Array.isArray(input) ? input.map(String) : [];
+  return [...requested.filter((key) => available.includes(key)), ...available.filter((key) => !requested.includes(key))];
+}
+
+function renderSourceOrder() {
+  const list = $('sourceOrderList');
+  if (!list) return;
+  sourceOrder = normalizeSourceOrder(sourceOrder);
+  const sourceMap = new Map(knownLookupSources().map((source) => [source.key, source]));
+  list.textContent = '';
+  sourceOrder.forEach((key, index) => {
+    const source = sourceMap.get(key);
+    if (!source) return;
+    const row = document.createElement('div');
+    row.className = 'dictionary-item source-order-item';
+    const indexDot = document.createElement('span');
+    indexDot.className = 'source-order-index';
+    indexDot.textContent = String(index + 1);
+    const info = document.createElement('div');
+    info.className = 'dictionary-info';
+    const name = document.createElement('div');
+    name.className = 'dictionary-name';
+    name.textContent = source.name;
+    const meta = document.createElement('div');
+    meta.className = 'dictionary-meta';
+    meta.textContent = `${source.type} · ${source.meta}${source.enabled ? '' : ' · disabled'}`;
+    info.append(name, meta);
+    const actions = document.createElement('div');
+    actions.className = 'dictionary-actions order-actions';
+    const up = makeButton('↑', () => moveSource(key, -1));
+    const down = makeButton('↓', () => moveSource(key, 1));
+    up.title = 'Move up';
+    down.title = 'Move down';
+    up.disabled = index === 0;
+    down.disabled = index === sourceOrder.length - 1;
+    actions.append(up, down);
+    row.append(indexDot, info, actions);
+    list.append(row);
+  });
+}
+
+async function moveSource(key, delta) {
+  const index = sourceOrder.indexOf(key);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= sourceOrder.length) return;
+  [sourceOrder[index], sourceOrder[target]] = [sourceOrder[target], sourceOrder[index]];
+  await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
+  renderSourceOrder();
+  status('Lookup order saved. The first source is shown first.');
 }
 
 async function importMdictFiles(event) {
@@ -163,7 +255,8 @@ async function importMdictFiles(event) {
     for (const mdx of mdxFiles) {
       const header = await parseMdictHeader(mdx);
       const base = basename(mdx.name);
-      const matchingMdds = mddFiles.filter((file) => basename(file.name).toLowerCase() === base.toLowerCase());
+      const basePattern = new RegExp('^' + escapeRegExp(base) + '(?:\\.\\d+)?$', 'i');
+      const matchingMdds = mddFiles.filter((file) => basePattern.test(basename(file.name)));
       const source = normalizeMdictSource({
         id: crypto.randomUUID(),
         name: header.title || base,
@@ -182,6 +275,7 @@ async function importMdictFiles(event) {
     }
     await saveMdictSources();
     renderMdictSources();
+    renderSourceOrder();
     const pairCount = newSources.filter((source) => source.mddFiles.length).length;
     status(`Added ${newSources.length} MDX source${newSources.length === 1 ? '' : 's'}; ${pairCount} matched MDD resource pair${pairCount === 1 ? '' : 's'}.`);
   } catch (error) {
@@ -206,7 +300,7 @@ function renderMdictSources() {
     const enabled = document.createElement('input');
     enabled.type = 'checkbox';
     enabled.checked = source.enabled !== false;
-    enabled.title = 'Enable this MDX source when the decoder is available';
+    enabled.title = 'Enable this MDX source in DictFloat lookup order';
     enabled.addEventListener('change', async () => {
       source.enabled = enabled.checked;
       await saveMdictSources();
@@ -225,7 +319,7 @@ function renderMdictSources() {
     meta.textContent = `${source.fileName} · ${formatSize(source.fileSize)} · ${engine} · ${encoding} · ${mdd}`;
     const state = document.createElement('div');
     state.className = 'source-status';
-    state.textContent = 'Header ready · decoder next';
+    state.textContent = source.status === 'ready' ? 'Ready for lookup' : 'Header imported · lookup decoder in progress';
     info.append(name, meta, state);
     const actions = document.createElement('div');
     actions.className = 'dictionary-actions';
@@ -238,13 +332,17 @@ function renderMdictSources() {
 async function removeMdictSource(source) {
   if (!confirm(`Remove the MDX source record for “${source.name}”? The original files on disk are not changed.`)) return;
   mdictSources = mdictSources.filter((item) => item.id !== source.id);
+  sourceOrder = normalizeSourceOrder(sourceOrder);
   await saveMdictSources();
+  await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
   renderMdictSources();
+  renderSourceOrder();
   status('MDX source record removed.');
 }
 
 async function saveMdictSources() {
-  await chrome.storage.local.set({ dictFloatMdictSources: mdictSources });
+  sourceOrder = normalizeSourceOrder(sourceOrder);
+  await chrome.storage.local.set({ dictFloatMdictSources: mdictSources, dictFloatSourceOrder: sourceOrder });
 }
 
 async function parseMdictHeader(file) {
@@ -298,6 +396,7 @@ function decodeXml(value) {
 function basename(filename) {
   return String(filename || '').replace(/\.(mdx|mdd)$/i, '');
 }
+function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function normalizeMdictSource(source) {
   return {
@@ -328,7 +427,8 @@ function exportJson() {
     version: 3,
     dictionaries,
     entries,
-    mdictSources
+    mdictSources,
+    sourceOrder
   }, null, 2), 'application/json');
   status(`Exported ${entries.length} entries, ${dictionaries.length} glossaries, and ${mdictSources.length} MDX source record${mdictSources.length === 1 ? '' : 's'}.`);
 }
@@ -354,11 +454,13 @@ async function importFile(event) {
     let incoming = [];
     let incomingDictionaries = [];
     let incomingMdictSources = [];
+    let incomingSourceOrder = [];
     if (file.name.toLowerCase().endsWith('.json')) {
       const json = JSON.parse(text);
       incoming = Array.isArray(json) ? json : (json.entries || []);
       incomingDictionaries = Array.isArray(json.dictionaries) ? json.dictionaries : [];
       incomingMdictSources = Array.isArray(json.mdictSources) ? json.mdictSources : [];
+      incomingSourceOrder = Array.isArray(json.sourceOrder) ? json.sourceOrder : [];
     } else {
       incoming = parseCsv(text).map((row) => ({ ...row, dictionaryId: dictionaryIdByName(row.dictionary) || 'my-glossary' }));
     }
@@ -380,9 +482,11 @@ async function importFile(event) {
       mdictSources = mdictSources.filter((item) => item.id !== source.id && !(item.fileName === source.fileName && item.fileSize === source.fileSize));
       mdictSources.push(source);
     });
-    await chrome.storage.local.set({ dictFloatEntries: entries, dictFloatDictionaries: dictionaries, dictFloatMdictSources: mdictSources });
+    sourceOrder = normalizeSourceOrder(incomingSourceOrder.length ? incomingSourceOrder : sourceOrder);
+    await chrome.storage.local.set({ dictFloatEntries: entries, dictFloatDictionaries: dictionaries, dictFloatMdictSources: mdictSources, dictFloatSourceOrder: sourceOrder });
     renderDictionaries();
     renderMdictSources();
+    renderSourceOrder();
     status(`Imported ${incoming.length} entries and ${incomingMdictSources.length} MDX source record${incomingMdictSources.length === 1 ? '' : 's'}.`);
   } catch (error) {
     status(`Import failed: ${error.message}`, true);
@@ -551,6 +655,9 @@ async function importWudaoFiles(event) {
     });
     await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
     renderWudaoSource();
+    sourceOrder = normalizeSourceOrder(sourceOrder);
+    await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
+    renderSourceOrder();
     status(`Wudao offline pack imported: ${enCount.toLocaleString()} English and ${zhCount.toLocaleString()} Chinese index entries.`);
   } catch (error) {
     status(`Wudao import failed: ${error.message}`, true);
@@ -607,6 +714,7 @@ function renderWudaoSource() {
     wudaoSource.enabled = enabled.checked;
     await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
     renderWudaoSource();
+    renderSourceOrder();
     status(`Wudao offline pack ${wudaoSource.enabled ? 'enabled' : 'disabled'}.`);
   });
   const info = document.createElement('div');
@@ -633,7 +741,10 @@ async function removeWudaoPack() {
     await chrome.runtime.sendMessage({ type: 'DICTFLOAT_WUDAO_RESET' }).catch(() => undefined);
     wudaoSource = normalizeWudaoSource(null);
     await chrome.storage.local.set({ dictFloatWudaoSource: wudaoSource });
+    sourceOrder = normalizeSourceOrder(sourceOrder);
+    await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
     renderWudaoSource();
+    renderSourceOrder();
     status('Wudao offline pack removed.');
   } catch (error) {
     status(`Unable to remove Wudao pack: ${error.message}`, true);
