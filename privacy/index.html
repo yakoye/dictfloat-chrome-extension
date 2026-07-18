@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>DictFloat Privacy Policy</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #f7f8fa; }
+    body { margin: 0; }
+    main { width: min(820px, calc(100% - 32px)); margin: 28px auto; padding: 30px 34px; background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; box-shadow: 0 12px 35px rgba(15,23,42,.08); }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    h2 { margin-top: 30px; font-size: 18px; }
+    p, li { line-height: 1.7; }
+    .date { color: #64748b; }
+    code { padding: 2px 5px; border-radius: 5px; background: #f1f5f9; }
+    a { color: #15803d; }
+    hr { margin: 42px 0; border: 0; border-top: 1px solid #e5e7eb; }
+    @media (prefers-color-scheme: dark) {
+      :root { color: #e5e7eb; background: #0f172a; }
+      main { background: #111827; border-color: #334155; box-shadow: none; }
+      .date { color: #94a3b8; }
+      code { background: #1e293b; }
+      a { color: #4ade80; }
+      hr { border-color: #334155; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>DictFloat Privacy Policy</h1>
+  <p class="date"><strong>Last updated:</strong> July 17, 2026</p>
+  <p>DictFloat is a Chrome extension for floating dictionary lookup, sentence translation, and optional AI-assisted English analysis. This policy explains what data DictFloat processes and how that data is used.</p>
+
+  <h2>1. Data DictFloat processes</h2>
+  <ul>
+    <li>Words, phrases, sentences, or paragraphs that the user actively types, selects, or submits for lookup.</li>
+    <li>User-created local glossaries and imported JSON or CSV glossary data.</li>
+    <li>Local MDX/MDD dictionary connection information and optional offline dictionary indexes.</li>
+    <li>Lookup history, source order, interface preferences, and extension settings.</li>
+    <li>User-configured translation or AI provider data, including API endpoint, model, prompts, and API key.</li>
+    <li>Limited tab information required for a user-triggered web-bridge translation.</li>
+  </ul>
+  <p>DictFloat does not intentionally collect page content that the user has not selected or submitted for lookup.</p>
+
+  <h2>2. Local storage</h2>
+  <p>Settings, lookup history, editable glossaries, source configuration, and provider configuration are stored in Chrome local extension storage on the user's device. API keys are stored locally and are excluded from ordinary editable-data backup exports. DictFloat does not operate a developer-controlled server for collecting this locally stored data.</p>
+
+  <h2>3. Online lookup, translation, and AI providers</h2>
+  <p>When a user enables an online dictionary, translation provider, web bridge, or AI provider and performs a lookup, DictFloat may send the actively submitted text to that selected third-party service. Possible services include Chrome Built-in Translator, Microsoft Translator, Tencent Hunyuan, SiliconFlow, Zhipu GLM, Youdao, Baidu, Doubao, and user-configured OpenAI-compatible or other AI endpoints.</p>
+  <p>The relevant third party processes the submitted text under its own terms and privacy policy.</p>
+
+  <h2>4. API credentials</h2>
+  <p>API keys are used only to authenticate requests to the provider selected by the user. DictFloat does not sell these credentials or send them to unrelated parties.</p>
+
+  <h2>5. Chrome permissions</h2>
+  <ul>
+    <li><code>storage</code>: stores user-controlled settings and local extension data.</li>
+    <li><code>contextMenus</code>: lets users explicitly look up selected text.</li>
+    <li><code>scripting</code>: injects or repairs DictFloat's packaged content script after a user action.</li>
+    <li><code>unlimitedStorage</code>: supports optional offline dictionaries and local indexes.</li>
+    <li><code>tabs</code>: supports user-triggered web-bridge translation tabs.</li>
+    <li>Host access: displays the lookup interface on pages where the user invokes it.</li>
+  </ul>
+  <p>DictFloat does not use these permissions to build or sell a browsing-history profile.</p>
+
+  <h2>6. Data sharing and sale</h2>
+  <p>DictFloat does not sell user data. User-submitted text is shared only with a service enabled or configured by the user for the requested lookup, translation, or analysis. DictFloat does not share user data with advertisers or data brokers.</p>
+
+  <h2>7. Analytics and advertising</h2>
+  <p>DictFloat does not include advertising SDKs and does not use third-party analytics to track user activity.</p>
+
+  <h2>8. Data deletion</h2>
+  <p>Users can clear lookup history, delete glossaries and provider configuration, remove API keys, clear Chrome extension storage, or uninstall the extension.</p>
+
+  <h2>9. Security</h2>
+  <p>DictFloat uses HTTPS when communicating with providers that expose HTTPS endpoints. Users should configure only providers and API endpoints they trust.</p>
+
+  <h2>10. Contact</h2>
+  <p>{{CONTACT_HTML}}</p>
+  <p>Repository: <a href="{{REPOSITORY_URL}}">{{REPOSITORY_URL}}</a></p>
+
+  <hr>
+
+  <h1>DictFloat 隐私政策</h1>
+  <p class="date"><strong>更新日期：</strong>2026 年 7 月 17 日</p>
+  <p>DictFloat 是一个用于悬浮查词、句子翻译和可选 AI 英语解析的 Chrome 扩展。本政策说明 DictFloat 会处理哪些数据，以及这些数据的用途。</p>
+
+  <h2>1. 处理的数据</h2>
+  <p>根据用户启用的功能，DictFloat 可能处理用户主动输入或划选的文本、本地术语库、本地词典连接信息、查询历史、扩展设置，以及用户配置的翻译或 AI Provider 信息和 API Key。</p>
+  <p>DictFloat 不会主动收集用户未划选、未输入或未提交查询的网页内容。</p>
+
+  <h2>2. 本地存储</h2>
+  <p>设置、查询历史、可编辑术语库、词典来源配置和 Provider 配置保存在用户设备上的 Chrome 扩展本地存储中。API Key 不进入普通可编辑数据备份。</p>
+
+  <h2>3. 在线查询、翻译和 AI</h2>
+  <p>当用户启用在线服务并执行查询时，DictFloat 可能把用户主动提交的文本发送给所选服务。第三方服务会按照其自己的条款和隐私政策处理收到的数据。</p>
+
+  <h2>4. 数据共享和出售</h2>
+  <p>DictFloat 不出售用户数据，也不向广告商或数据经纪商共享用户数据。</p>
+
+  <h2>5. 数据删除</h2>
+  <p>用户可以清除历史、删除术语库和 Provider 配置、移除 API Key、清除扩展存储或卸载扩展。</p>
+
+  <h2>6. 联系方式</h2>
+  <p>{{CONTACT_HTML}}</p>
+</main>
+</body>
+</html>
