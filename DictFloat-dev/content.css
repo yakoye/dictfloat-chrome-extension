@@ -539,43 +539,45 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-source-header { background:transparent; }
 .dark .dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
 .dictfloat-source-save {
-  /* Secondary action: a compact square plus, visually aligned with the
-     dictionary-name text rather than competing with it. */
-  flex:0 0 15px;
-  width:15px;
-  height:15px;
-  min-width:15px;
-  min-height:15px;
+  /* Secondary action: literal ASCII "+" in a tiny quiet square. It is kept
+     below the dictionary-label height so it never becomes the visual focus. */
+  flex:0 0 12px;
+  width:12px;
+  height:12px;
+  min-width:12px;
+  min-height:12px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  margin:0 3px 0 0;
+  margin:0 4px 0 0;
   padding:0;
-  border:1px solid #d6dee9;
-  border-radius:3px;
-  background:#eef2f6;
-  color:#526176;
+  border:1px solid #42516a;
+  border-radius:2px;
+  background:#273448;
+  color:#d2dbea;
   cursor:pointer;
-  font-family:Arial, sans-serif;
-  font-size:14px;
-  font-weight:500;
-  line-height:13px;
-  vertical-align:middle;
-  opacity:1;
+  font-family:ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size:11px;
+  font-weight:400;
+  line-height:10px;
+  vertical-align:baseline;
+  transform:translateY(-.5px);
+  opacity:.92;
 }
 .dictfloat-source-save:hover {
-  border-color:color-mix(in srgb, var(--df-accent) 42%, #d6dee9);
-  background:color-mix(in srgb, var(--df-accent) 12%, #eef2f6);
-  color:var(--df-accent-strong);
+  border-color:color-mix(in srgb, var(--df-accent) 48%, #42516a);
+  background:color-mix(in srgb, var(--df-accent) 18%, #273448);
+  color:color-mix(in srgb, var(--df-accent) 72%, white);
+  opacity:1;
 }
 .dictfloat-source-save:focus-visible {
   outline:2px solid var(--df-accent-ring);
   outline-offset:1px;
 }
 .dark .dictfloat-source-save {
-  border-color:#3d4a60;
-  background:#283548;
-  color:#c8d2e0;
+  border-color:#42516a;
+  background:#273448;
+  color:#d2dbea;
 }
 .dark .dictfloat-source-save:hover {
   border-color:color-mix(in srgb, var(--df-accent) 54%, #3d4a60);

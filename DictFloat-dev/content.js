@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.11'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.12'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -926,7 +926,7 @@
     header.append(left);
 
     if (typeof onSave === 'function') {
-      const save = el('button', 'dictfloat-source-save', '＋');
+      const save = el('button', 'dictfloat-source-save', '+');
       save.type = 'button';
       save.title = 'Save to my glossary';
       save.setAttribute('aria-label', 'Save to my glossary');

@@ -1,4 +1,4 @@
-# DictFloat v0.5.11 — Data safety & recovery snapshots
+# DictFloat v0.5.12 — Data safety & recovery snapshots
 
 ## What changed / 本版重点
 
@@ -52,7 +52,7 @@
 - Toolbar actions, local storage writes, source-collapse state, drag-position persistence, and asynchronous lookup calls now use guarded extension API calls so the expected reload transition does not surface as an uncaught error.
 
 
-## v0.5.11
+## v0.5.12
 
 - Stable development extension ID via the manifest public key. The first migration changes the unpacked extension ID once; export a backup from the previous build before loading this release, then import it and locate only any genuinely missing MDX sources.
 - Linked MDX sources distinguish **Ready**, **Access confirmation required**, **File missing**, and **File changed**.
