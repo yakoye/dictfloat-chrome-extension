@@ -53,27 +53,20 @@
     </section>
 
     <section class="card custom-ai-card">
-      <h2>Custom AI Provider <span class="beta-chip">OpenAI-compatible</span></h2>
-      <p class="hint">Use DeepSeek, Doubao / Volcengine Ark, OpenAI, OpenRouter, One API, LiteLLM, or your own compatible endpoint. Only selected text is sent after you manually trigger lookup.</p>
-      <label class="toggle-row provider-row"><span><strong>5. Enable Custom AI Provider</strong><small>Shown as the fifth sentence translation / analysis source.</small></span><input id="translateCustomAiProvider" type="checkbox"></label>
-      <div class="custom-ai-grid">
-        <label class="field"><span>Provider name</span><input id="customAiProviderName" type="text" placeholder="DeepSeek / Doubao / OpenAI"></label>
-        <label class="field"><span>Model</span><input id="customAiModel" type="text" placeholder="deepseek-chat / gpt-4o-mini"></label>
-        <label class="field custom-ai-url"><span>API URL / Base URL</span><input id="customAiApiUrl" type="url" placeholder="https://api.deepseek.com"></label>
-        <label class="field custom-ai-key"><span>API Key</span><input id="customAiApiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
+      <div class="section-title ai-heading">
+        <div>
+          <h2>AI Providers <span class="beta-chip">OpenAI-compatible</span></h2>
+          <p class="hint">Use DeepSeek, Doubao / Volcengine Ark, OpenAI, OpenRouter, One API, LiteLLM, or your own compatible endpoint. Each provider has its own API, model, prompt, and switch.</p>
+        </div>
+        <span id="aiProviderCount" class="source-status">0/0 enabled</span>
       </div>
-      <label class="toggle-row compact-toggle"><span>Show password</span><input id="customAiShowKey" type="checkbox"></label>
-      <div class="custom-ai-grid numeric-grid">
-        <label class="field"><span>Temperature</span><input id="customAiTemperature" type="number" min="0" max="2" step="0.1"></label>
-        <label class="field"><span>Max text length</span><input id="customAiMaxTextLength" type="number" min="100" max="30000" step="100"></label>
-        <label class="field"><span>Max output tokens</span><input id="customAiMaxOutputTokens" type="number" min="128" max="16000" step="128"></label>
+      <p class="hint">Enabled AI providers are shown after the normal sentence translation providers. Only selected text is sent after you manually trigger lookup.</p>
+      <div id="aiProviderList" class="ai-provider-list"></div>
+      <div class="actions ai-provider-add-actions">
+        <button id="addAiProvider" type="button">+ Add blank AI</button>
+        <button id="addDeepSeekProvider" type="button">+ Add DeepSeek preset</button>
       </div>
-      <label class="field prompt-field"><span>System Prompt</span><textarea id="customAiSystemPrompt" rows="4"></textarea></label>
-      <label class="field prompt-field"><span>User Prompt Template</span><textarea id="customAiUserPromptTemplate" rows="5"></textarea></label>
-      <p class="hint">Use <code>{{text}}</code> where selected text should be inserted. Base URLs are automatically converted to <code>/chat/completions</code>.</p>
-      <div class="actions"><button id="customAiTest" type="button">Test API</button></div>
-      <pre id="customAiTestResult" class="custom-ai-test-result" hidden></pre>
-      <p class="hint">API Key is stored separately in <code>chrome.storage.local</code> and is not included in normal backup export.</p>
+      <p class="hint">Default prompts are prefilled and editable. Once you edit a prompt or other field, DictFloat keeps using your modified version. API keys are stored separately in <code>chrome.storage.local</code> and are not included in normal backup export.</p>
     </section>
 
     <section class="card library-card" id="dictionaryLibraryCard">

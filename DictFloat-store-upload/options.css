@@ -78,6 +78,20 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
 .compact-toggle { justify-content:flex-start; gap:9px; margin-top:9px; color:#65758d; }
 .compact-toggle > span { flex:0 0 auto; }
 .custom-ai-test-result { margin:10px 0 0; padding:9px 10px; border:1px solid #e0e7f0; border-radius:8px; background:#fbfcff; color:#42516a; white-space:pre-wrap; word-break:break-word; font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.ai-heading { align-items:center; }
+.ai-provider-list { display:grid; gap:12px; margin-top:13px; }
+.ai-provider-item { padding:12px; border:1px solid #e4e9f1; border-radius:10px; background:#fbfcff; }
+.ai-provider-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.ai-provider-toggle { display:flex; align-items:flex-start; gap:9px; min-width:0; }
+.ai-provider-toggle input[type="checkbox"] { width:16px; height:16px; min-width:16px; margin:2px 0 0; padding:0; accent-color:var(--df-accent); }
+.ai-provider-toggle span { min-width:0; display:grid; gap:2px; }
+.ai-provider-toggle strong { font-size:12px; line-height:1.35; }
+.ai-provider-toggle small { color:#7b899c; font-size:11px; line-height:1.35; word-break:break-word; }
+.ai-provider-controls { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.ai-provider-controls button,.ai-provider-actions button,.ai-provider-add-actions button { min-height:27px; padding:4px 7px; font-size:11px; }
+.ai-provider-grid { margin-top:11px; }
+.ai-show-key { margin-top:8px; }
+.ai-provider-actions { margin-top:10px; }
 @media (max-width:700px) { .custom-ai-grid,.numeric-grid { grid-template-columns:1fr; } .custom-ai-url,.custom-ai-key { grid-column:auto; } }
 
 @media (max-width: 900px) {
@@ -108,6 +122,8 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
   .beta-chip { border-color:color-mix(in srgb, var(--df-accent) 36%, #35465f); background:color-mix(in srgb, var(--df-accent) 14%, #172338); color:color-mix(in srgb, var(--df-accent) 56%, white); }
   code { background:#26344a; }
   .custom-ai-test-result { border-color:#33445e; background:#111a28; color:#dce7f6; }
+  .ai-provider-item { background:#111a28; border-color:#33445e; }
+  .ai-provider-toggle small { color:#aab7ca; }
 }
 
 
