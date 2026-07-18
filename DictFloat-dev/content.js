@@ -10,10 +10,12 @@
     query: '',
     view: 'lookup',
     selectedId: null,
-    settings: { selectionMode: 'bubble', compactMode: true, fontSize: 12, panelWidth: 380, showPhonetic: true, theme: 'system' },
+    settings: { selectionMode: 'bubble', compactMode: true, fontSize: 12, panelWidth: 380, showPhonetic: true, theme: 'system', onlineLookup: true },
     entries: [],
     history: [],
-    position: null
+    position: null,
+    online: { query: '', status: 'idle', data: null, error: '' },
+    draftEntry: null
   };
 
   const storage = chrome.storage.local;
@@ -132,8 +134,8 @@
     const input = document.createElement('input');
     input.type = 'text'; input.placeholder = 'Search word, phrase, or term…'; input.value = state.query;
     input.autocomplete = 'off'; input.spellcheck = false;
-    input.addEventListener('input', () => { state.query = input.value; state.selectedId = null; renderContentOnly(); });
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookup(input.value); if (e.key === 'Escape') { input.value = ''; state.query = ''; renderContentOnly(); } });
+    input.addEventListener('input', () => { state.query = input.value; state.selectedId = null; state.online = { query: '', status: 'idle', data: null, error: '' }; renderContentOnly(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookup(input.value); if (e.key === 'Escape') { input.value = ''; state.query = ''; state.online = { query: '', status: 'idle', data: null, error: '' }; renderContentOnly(); } });
     const clearBtn = el('button', 'dictfloat-search-clear', '×');
     clearBtn.type = 'button';
     clearBtn.title = 'Clear search';
@@ -143,6 +145,7 @@
       input.value = '';
       state.query = '';
       state.selectedId = null;
+      state.online = { query: '', status: 'idle', data: null, error: '' };
       clearBtn.hidden = true;
       renderContentOnly();
       input.focus();
@@ -186,25 +189,81 @@
     const results = queryEntries(state.query);
     if (state.selectedId) {
       const entry = state.entries.find(item => item.id === state.selectedId);
-      if (entry) return fillEntry(box, entry);
+      if (entry) {
+        fillEntry(box, entry);
+        appendOnlineSection(box);
+        return;
+      }
     }
     if (!state.query.trim()) {
-      // Keep the idle state intentionally quiet. The search field is self-explanatory;
-      // show only a small local-term list when one exists.
-      if (state.entries.length) {
-        state.entries.slice(0, 5).forEach(entry => box.append(resultItem(entry)));
-      }
+      if (state.entries.length) state.entries.slice(0, 5).forEach(entry => box.append(resultItem(entry)));
       return;
     }
     if (!results.length) {
       const empty = el('div', 'dictfloat-empty');
       empty.innerHTML = `<strong>No local result</strong><br><span>Try another spelling, alias, tag, or add it to your glossary.</span>`;
       const addCurrent = el('button', 'dictfloat-add-current', `+ Add “${truncate(state.query, 34)}”`);
-      addCurrent.addEventListener('click', () => { state.view = 'add'; renderContentOnly(); updateTabs(); });
+      addCurrent.addEventListener('click', () => { state.view = 'add'; state.draftEntry = null; renderContentOnly(); updateTabs(); });
       empty.append(document.createElement('br'), addCurrent);
-      box.append(empty); return;
+      box.append(empty);
+    } else {
+      results.forEach(entry => box.append(resultItem(entry)));
     }
-    results.forEach(entry => box.append(resultItem(entry)));
+    appendOnlineSection(box);
+  }
+
+  function appendOnlineSection(box) {
+    const online = state.online;
+    if (!state.query.trim() || !state.settings.onlineLookup || online.query !== state.query.trim()) return;
+    const section = el('section', 'dictfloat-online-section');
+    if (online.status === 'loading') {
+      section.append(el('div', 'dictfloat-online-status', 'Searching online…'));
+      box.append(section);
+      return;
+    }
+    if (online.status === 'error') {
+      const msg = el('div', 'dictfloat-online-status', 'Online lookup is unavailable right now.');
+      msg.title = online.error || '';
+      section.append(msg); box.append(section); return;
+    }
+    if (online.status !== 'done' || !online.data) return;
+    const data = online.data;
+    const label = el('div', 'dictfloat-online-label', 'Online');
+    section.append(label);
+    const row = el('div', 'dictfloat-term-row');
+    row.append(el('div', 'dictfloat-term', data.term || state.query));
+    section.append(row);
+    if (data.phonetic) section.append(el('div', 'dictfloat-subtitle', data.phonetic));
+    if (data.translation) section.append(el('div', 'dictfloat-cn', data.translation));
+    if (Array.isArray(data.definitions) && data.definitions.length) {
+      const defs = el('div', 'dictfloat-online-definitions');
+      data.definitions.slice(0, 4).forEach((item) => {
+        const line = el('div', 'dictfloat-online-definition');
+        if (item.partOfSpeech) line.append(el('span', 'dictfloat-pos', item.partOfSpeech));
+        line.append(document.createTextNode(item.definition));
+        defs.append(line);
+      });
+      section.append(defs);
+    }
+    if (!data.translation && (!data.definitions || !data.definitions.length)) {
+      section.append(el('div', 'dictfloat-online-status', 'No online definition was returned for this query.'));
+    }
+    const meta = el('div', 'dictfloat-meta', data.providers?.join(' · ') || 'Online lookup');
+    section.append(meta);
+    const actions = el('div', 'dictfloat-inline-actions');
+    const save = el('button', '', '+ Save');
+    save.addEventListener('click', () => {
+      state.draftEntry = onlineToDraft(data);
+      state.view = 'add';
+      renderContentOnly(); updateTabs();
+    });
+    const copy = el('button', '', 'Copy');
+    copy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(formatOnlineCopy(data));
+      copy.textContent = 'Copied'; setTimeout(() => copy.textContent = 'Copy', 900);
+    });
+    actions.append(save, copy); section.append(actions);
+    box.append(section);
   }
 
   function resultItem(entry) {
@@ -235,7 +294,7 @@
 
   function fillAddForm(box, editing) {
     // Preserve the just-looked-up text so building a personal glossary is one step.
-    const entry = editing || { term: state.query.trim(), aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary' };
+    const entry = editing || state.draftEntry || { term: state.query.trim(), aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary' };
     box.append(el('div','dictfloat-meta', editing ? 'Edit local entry' : 'Add to My Glossary'));
     const form = el('form','dictfloat-add-form');
     const fields = [
@@ -250,7 +309,7 @@
     const cancel = el('button','', 'Cancel'); cancel.type='button'; cancel.addEventListener('click', () => { state.view='lookup'; renderContentOnly(); updateTabs(); });
     const save = el('button','', editing ? 'Save changes' : 'Save entry'); save.type='submit';
     buttons.append(cancel, el('span','grow'), save); form.append(buttons);
-    form.addEventListener('submit', async e => { e.preventDefault(); const fd = new FormData(form); const term = String(fd.get('term')||'').trim(); const definition=String(fd.get('definition')||'').trim(); if (!term || !definition) return; const value = { ...entry, id: entry.id || crypto.randomUUID(), term, chinese:String(fd.get('chinese')||'').trim(), aliases:list(fd.get('aliases')), tags:list(fd.get('tags')), category:String(fd.get('category')||'').trim(), source:String(fd.get('source')||'').trim()||'My glossary', definition, updatedAt:Date.now() }; if (editing) state.entries = state.entries.map(x=>x.id===entry.id?value:x); else state.entries.unshift(value); await saveEntries(); state.view='lookup'; state.query=term; state.selectedId=value.id; renderContentOnly(); updateTabs(); });
+    form.addEventListener('submit', async e => { e.preventDefault(); const fd = new FormData(form); const term = String(fd.get('term')||'').trim(); const definition=String(fd.get('definition')||'').trim(); if (!term || !definition) return; const value = { ...entry, id: entry.id || crypto.randomUUID(), term, chinese:String(fd.get('chinese')||'').trim(), aliases:list(fd.get('aliases')), tags:list(fd.get('tags')), category:String(fd.get('category')||'').trim(), source:String(fd.get('source')||'').trim()||'My glossary', definition, updatedAt:Date.now() }; if (editing) state.entries = state.entries.map(x=>x.id===entry.id?value:x); else state.entries.unshift(value); await saveEntries(); state.draftEntry = null; state.view='lookup'; state.query=term; state.selectedId=value.id; renderContentOnly(); updateTabs(); });
     box.append(form);
   }
 
@@ -260,14 +319,32 @@
   function footer() {
     const foot = el('footer','dictfloat-footer');
     const settings = el('button','', '⚙ Settings'); settings.addEventListener('click', () => chrome.runtime.sendMessage({type:'DICTFLOAT_OPEN_OPTIONS'}));
-    const mdx = el('button','', 'MDX'); mdx.title = 'MDX import is planned for a later version'; mdx.addEventListener('click', () => alert('MDX / MDD import is planned for DictFloat v0.3.\nThis v0.1 build supports local custom glossary entries and JSON / CSV import/export in Settings.'));
-    foot.append(settings, el('span','grow'), mdx); return foot;
+    const online = el('button','dictfloat-online-toggle', state.settings.onlineLookup ? 'Online: On' : 'Online: Off');
+    online.title = 'Change online lookup in Settings';
+    online.addEventListener('click', () => chrome.runtime.sendMessage({type:'DICTFLOAT_OPEN_OPTIONS'}));
+    foot.append(settings, el('span','grow'), online); return foot;
   }
 
   function lookup(raw) {
-    const q = String(raw || '').trim(); state.query = q; state.view='lookup'; state.selectedId=null;
+    const q = String(raw || '').trim(); state.query = q; state.view='lookup'; state.selectedId=null; state.draftEntry = null;
+    state.online = { query: q, status: state.settings.onlineLookup && q ? 'loading' : 'idle', data: null, error: '' };
     const best = queryEntries(q)[0]; if (best) { state.selectedId = best.id; addHistory(best); }
-    render(); requestAnimationFrame(()=>{ const input=state.root?.querySelector('.dictfloat-search input'); if(input){input.focus(); input.select();} });
+    render();
+    if (state.settings.onlineLookup && q) lookupOnline(q);
+    requestAnimationFrame(()=>{ const input=state.root?.querySelector('.dictfloat-search input'); if(input){input.focus(); input.select();} });
+  }
+
+  async function lookupOnline(query) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_ONLINE_LOOKUP', query });
+      if (state.query !== query) return;
+      if (!response?.ok) throw new Error(response?.error || 'Online lookup failed');
+      state.online = { query, status: 'done', data: response.data || null, error: '' };
+    } catch (error) {
+      if (state.query !== query) return;
+      state.online = { query, status: 'error', data: null, error: String(error?.message || error) };
+    }
+    renderContentOnly();
   }
 
   async function addHistory(entry) {
@@ -288,6 +365,15 @@
   function list(value) { return String(value||'').split(',').map(x=>x.trim()).filter(Boolean); }
   function formatCopy(e) { return `${e.term}${e.chinese ? `\n${e.chinese}` : ''}\n${e.definition}${e.aliases?.length?`\nAliases: ${e.aliases.join(', ')}`:''}`; }
   function truncate(value, max) { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; }
+
+  function onlineToDraft(data) {
+    const definition = (data.definitions || []).slice(0, 3).map(item => item.definition).filter(Boolean).join('\n') || data.translation || '';
+    return { term: data.term || state.query.trim(), aliases: [], chinese: data.translation || '', definition, tags: [], category: '', source: data.providers?.join(' + ') || 'Online lookup' };
+  }
+  function formatOnlineCopy(data) {
+    const defs = (data.definitions || []).map(item => `${item.partOfSpeech ? `[${item.partOfSpeech}] ` : ''}${item.definition}`).join('\n');
+    return `${data.term || state.query}${data.phonetic ? `\n${data.phonetic}` : ''}${data.translation ? `\n${data.translation}` : ''}${defs ? `\n${defs}` : ''}`;
+  }
 
   function handleSelection(event) {
     if (event.target.closest?.('#dictfloat-root')) return;

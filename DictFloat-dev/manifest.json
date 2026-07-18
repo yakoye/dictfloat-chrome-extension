@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.1.5",
-  "description": "Compact floating dictionary with selection lookup and personal technical glossaries.",
+  "version": "0.2.0",
+  "description": "Compact floating dictionary with selection lookup, online dictionary results, and personal technical glossaries.",
   "permissions": [
     "storage",
     "contextMenus",

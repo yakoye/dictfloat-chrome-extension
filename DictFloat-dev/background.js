@@ -29,7 +29,8 @@ chrome.runtime.onInstalled.addListener(async () => {
         fontSize: 12,
         panelWidth: 380,
         showPhonetic: true,
-        theme: 'system'
+        theme: 'system',
+        onlineLookup: true
       }
     });
   }
@@ -54,9 +55,96 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'DICTFLOAT_OPEN_OPTIONS') chrome.runtime.openOptionsPage();
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'DICTFLOAT_OPEN_OPTIONS') {
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+  if (message?.type === 'DICTFLOAT_ONLINE_LOOKUP') {
+    lookupOnline(String(message.query || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
 });
+
+async function lookupOnline(rawQuery) {
+  const query = rawQuery.trim().replace(/\s+/g, ' ');
+  if (!query || query.length > 160) throw new Error('Invalid query');
+  const isChinese = /[\u3400-\u9fff]/.test(query);
+  const translationPair = isChinese ? 'zh-CN|en' : 'en|zh-CN';
+  const translationPromise = fetchJson(
+    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(query)}&langpair=${encodeURIComponent(translationPair)}`
+  ).then(parseMyMemory).catch(() => '');
+
+  const canUseDictionary = !isChinese && /^[A-Za-z][A-Za-z\s'’-]{0,80}$/.test(query);
+  const dictionaryPromise = canUseDictionary
+    ? fetchJson(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(query)}`)
+        .then(parseDictionary)
+        .catch(() => ({ term: query, phonetic: '', definitions: [], providers: [] }))
+    : Promise.resolve({ term: query, phonetic: '', definitions: [], providers: [] });
+
+  let [translation, dictionary] = await Promise.all([translationPromise, dictionaryPromise]);
+  if (normalizeComparable(translation) === normalizeComparable(query)) translation = '';
+  const providers = [];
+  if (dictionary.definitions.length || dictionary.phonetic) providers.push('Free Dictionary API');
+  if (translation) providers.push('MyMemory');
+  if (!providers.length) throw new Error('No online result');
+  return {
+    term: dictionary.term || query,
+    phonetic: dictionary.phonetic || '',
+    definitions: dictionary.definitions || [],
+    translation,
+    providers
+  };
+}
+
+async function fetchJson(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseMyMemory(data) {
+  const text = data?.responseData?.translatedText;
+  if (!text || typeof text !== 'string') return '';
+  return decodeEntities(text).trim();
+}
+
+function parseDictionary(data) {
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first) return { term: '', phonetic: '', definitions: [], providers: [] };
+  const phonetic = first.phonetic || (first.phonetics || []).find((item) => item?.text)?.text || '';
+  const definitions = [];
+  for (const meaning of first.meanings || []) {
+    for (const definition of meaning.definitions || []) {
+      if (definition?.definition) definitions.push({
+        partOfSpeech: meaning.partOfSpeech || '',
+        definition: String(definition.definition).trim()
+      });
+      if (definitions.length >= 4) break;
+    }
+    if (definitions.length >= 4) break;
+  }
+  return { term: first.word || '', phonetic, definitions, providers: [] };
+}
+
+function normalizeComparable(value) { return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+function decodeEntities(value) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID || !tab?.id || !info.selectionText) return;

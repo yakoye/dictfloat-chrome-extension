@@ -61,3 +61,16 @@
 
 /* System theme uses the same class as the explicit dark theme; the class is
    selected by content.js from Chrome's prefers-color-scheme media query. */
+
+.dictfloat-online-section { margin-top: 11px; padding-top: 10px; border-top: 1px solid rgba(148,163,184,.18); }
+.dictfloat-online-label { margin-bottom: 6px; color: #be185d; font-size: 10px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.dark .dictfloat-online-label { color: #f9a8d4; }
+.dictfloat-online-status { color: #8996a8; font-size: 11px; padding: 4px 0; }
+.dictfloat-online-definitions { display: grid; gap: 5px; margin-top: 7px; }
+.dictfloat-online-definition { color: inherit; line-height: 1.55; }
+.dictfloat-pos { display: inline-block; min-width: 35px; margin-right: 4px; color: #8a97aa; font-size: 10px; font-style: italic; }
+.dictfloat-inline-actions { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+.dictfloat-inline-actions button { border: 1px solid rgba(148,163,184,.27); background: rgba(255,255,255,.7); color: inherit; border-radius: 7px; min-height: 24px; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; }
+.dark .dictfloat-inline-actions button { background: rgba(15,23,42,.48); }
+.dictfloat-inline-actions button:hover { border-color: #f9a8d4; background: #fff1f7; }
+.dark .dictfloat-inline-actions button:hover { background: rgba(236,72,153,.12); }

@@ -1,16 +1,16 @@
 const $ = (id) => document.getElementById(id);
-const defaults = { selectionMode:'bubble', fontSize:12, panelWidth:380, theme:'system' };
+const defaults = { selectionMode:'bubble', fontSize:12, panelWidth:380, theme:'system', onlineLookup:true };
 let entries=[];
 
 init();
 async function init(){
   const data=await chrome.storage.local.get(['dictFloatSettings','dictFloatEntries']);
   const settings={...defaults,...(data.dictFloatSettings||{})}; entries=Array.isArray(data.dictFloatEntries)?data.dictFloatEntries:[];
-  for(const key of Object.keys(defaults)) $(key).value=settings[key];
-  ['selectionMode','fontSize','panelWidth','theme'].forEach(id=>$(id).addEventListener('change',saveSettings));
+  for(const key of Object.keys(defaults)){ if ($(key).type === 'checkbox') $(key).checked=!!settings[key]; else $(key).value=settings[key]; }
+  ['selectionMode','fontSize','panelWidth','theme','onlineLookup'].forEach(id=>$(id).addEventListener('change',saveSettings));
   $('exportJson').addEventListener('click',exportJson); $('exportCsv').addEventListener('click',exportCsv); $('importFile').addEventListener('change',importFile); $('clearEntries').addEventListener('click',clearEntries);
 }
-async function saveSettings(){ const settings={selectionMode:$('selectionMode').value,fontSize:clamp(+$('fontSize').value,10,15),panelWidth:clamp(+$('panelWidth').value,320,520),theme:$('theme').value}; await chrome.storage.local.set({dictFloatSettings:settings}); status('Saved. Refresh an existing page to apply selection behavior immediately.'); }
+async function saveSettings(){ const settings={selectionMode:$('selectionMode').value,fontSize:clamp(+$('fontSize').value,10,15),panelWidth:clamp(+$('panelWidth').value,320,520),theme:$('theme').value,onlineLookup:$('onlineLookup').checked}; await chrome.storage.local.set({dictFloatSettings:settings}); status('Saved. Refresh an existing page to apply selection behavior immediately.'); }
 function exportJson(){ download('dictfloat-glossary.json',JSON.stringify({format:'dictfloat-glossary',version:1,entries},null,2),'application/json'); status(`Exported ${entries.length} entries as JSON.`); }
 function exportCsv(){ const headers=['term','aliases','chinese','definition','tags','category','source']; const csv=[headers.join(','),...entries.map(e=>headers.map(k=>csvEscape(Array.isArray(e[k])?e[k].join(', '):(e[k]||''))).join(','))].join('\n');download('dictfloat-glossary.csv',csv,'text/csv;charset=utf-8');status(`Exported ${entries.length} entries as CSV.`); }
 async function importFile(e){const file=e.target.files?.[0]; if(!file)return;try{const text=await file.text();let incoming=[];if(file.name.toLowerCase().endsWith('.json')){const json=JSON.parse(text);incoming=Array.isArray(json)?json:(json.entries||[]);}else incoming=parseCsv(text);incoming=incoming.map(normalizeEntry).filter(x=>x.term&&x.definition);if(!incoming.length)throw new Error('No valid entries found.');const byKey=new Map(entries.map(x=>[x.term.toLowerCase(),x]));for(const item of incoming)byKey.set(item.term.toLowerCase(),item);entries=[...byKey.values()];await chrome.storage.local.set({dictFloatEntries:entries});status(`Imported ${incoming.length} entries. Total: ${entries.length}.`);}catch(err){status(`Import failed: ${err.message}`,true)}finally{e.target.value='';}}

@@ -1,49 +1,31 @@
-## v0.1.3
-- Replaced the redundant search-side key hint with an × clear button.
+# DictFloat v0.2.0
 
-# DictFloat v0.1.2
+A compact, page-level floating dictionary for Chrome. DictFloat is designed for reading technical documents: type a term, select text on a page, look it up, and save useful terms into your own local glossary.
 
-A compact floating local dictionary Chrome extension.
+## What is included
 
-## Implemented
+- Floating, draggable dictionary panel; default width 380px and text size 12px.
+- Click the extension icon to open/close DictFloat in the active webpage.
+- Select text to show the pink lookup bubble; choose automatic opening in Settings if desired.
+- Local-first personal glossary with aliases, Chinese meanings, definitions, tags, categories, favorites, history, CSV/JSON import and export.
+- Online lookup is enabled by default: English definitions come from Free Dictionary API and translations come from MyMemory. No API key is required for this v0.2 integration.
+- Online results can be copied or saved as a new local glossary entry.
+- Light/dark mode follows Chrome by default.
 
-- Click the toolbar icon to toggle a compact **webpage floating panel**.
-- 12px default text; default width: 380px.
-- Select text on a webpage → a pink lookup bubble appears → click to search.
-- Optional automatic popup after selection (Settings).
-- Right-click selected text → **Look up “…” in DictFloat**.
-- Local search across term, aliases, Chinese meaning, tags, and definition.
-- Add / edit / favorite entries directly inside the floating panel.
-- Local lookup history.
-- JSON / CSV import and export from the Settings page.
-- Includes starter PCIe entries and a separate `assets/pcie-starter-glossary.json` sample file.
-- Drag the floating panel; its position is stored locally.
-
-## Intentionally not included yet
-
-MDX / MDD parsing is **not implemented in v0.1.2**. Supporting MDX reliably requires a dedicated parser/indexer, large-file storage strategy, MDD resources/CSS handling, and a license review for any third-party implementation. The UI has a reserved MDX entry so v0.3 can add it without redesigning the workflow.
-
-## Install on Chrome (Developer mode)
+## Install for testing
 
 1. Unzip the package.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
-4. Click **Load unpacked**.
-5. Choose the extracted `DictFloat` folder.
-6. Pin DictFloat from the Chrome extensions menu.
+4. Choose **Load unpacked** and select the `DictFloat` folder.
+5. Pin the DictFloat icon and test it on a normal website.
 
-## Notes
+Chrome does not allow extensions to inject the floating UI into internal pages such as `chrome://` pages, the Chrome Web Store, and some built-in PDF viewers.
 
-- Chrome blocks content scripts on some protected pages, including `chrome://` pages and the Chrome Web Store. DictFloat cannot display its floating window on those pages.
-- The extension uses `<all_urls>` so the selection bubble can work across normal websites. All dictionary data is stored in `chrome.storage.local` and is not sent to a server.
+## Online lookup privacy
 
+Online lookup sends only the query that you explicitly submit with Enter or the selected text that you explicitly look up. It does not upload your local glossary or browsing-page content. You can turn online lookup off in Settings.
 
-## v0.1.2
+## Current scope
 
-- Fixed the toolbar icon action: first click now opens DictFloat reliably; click again closes it; clicking while minimized restores it.
-- The open panel now refreshes when dictionary entries, history, or settings are changed in Options.
-
-## v0.1.2
-
-- A no-result search now provides a one-click **Add current term** action.
-- The Add form pre-fills the last searched term.
+MDX / MDD import is reserved for v0.3. This build does not claim to parse `.mdx` or `.mdd` files.
