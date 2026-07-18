@@ -1,45 +1,39 @@
-# DictFloat v0.4.2 — Reader-mode window reliability
+# DictFloat v0.4.4 — Backup & dictionary-root recovery
 
-DictFloat is a compact Chrome floating dictionary for local glossaries, linked MDX text lookup, optional Wudao offline data, online fallback, and webpage selection lookup.
+## What changed / 本版重点
 
-## v0.4.2 / 本版重点
+- Adds **Backup & recovery** in Settings.
+  - **Export backup** saves DictFloat settings, editable glossaries, history, window position, source order, folded sections, and dictionary connection metadata.
+  - **Import backup** restores those settings safely.
+  - Raw MDX/MDD files and the Wudao data pack are deliberately **not** copied into the backup.
+- Adds **Reconnect dictionary root**.
+  - Pick your parent dictionary folder once, for example `C:\Users\color\Downloads\0-常用`.
+  - DictFloat scans subfolders, relinks saved MDX dictionaries by filename/size, rebuilds lightweight indices, and can re-import Wudao files when all four files are found.
+- A backup restored on a new Chrome profile keeps MDX / Wudao in the Dictionary Library as **Reconnect required**, rather than silently losing the source record.
+- Normal extension development no longer requires removing DictFloat. Keep one fixed unpacked folder and use Chrome's **Reload** button.
 
-### Reader-mode compatibility / 简读模式兼容
+## Recommended development workflow / 推荐调试方式
 
-Some reading overlays create a full-screen fixed layer at the browser’s highest normal `z-index`. DictFloat now uses two protection layers whenever it opens:
+1. Create one permanent development folder, for example:
 
-1. Its unique root is moved to the end of `document.documentElement` and receives an inline maximum stacking fallback.
-2. The visible DictFloat panel, minimized bar, and selection bubble use `popover="manual"` where supported, which places them in Chrome’s browser top layer above ordinary reader overlays.
+   ```text
+   D:\work\chrome-extensions\DictFloat-dev
+   ```
 
-This means the extension toolbar click no longer depends on the original article DOM remaining visible. The panel can be opened from normal webpages and from overlay-based reader modes using the same single DictFloat instance.
+2. Load this folder once in `chrome://extensions` with **Developer mode → Load unpacked**.
+3. Before major changes, open DictFloat Settings → **Backup & recovery → Export backup**.
+4. For every new build:
+   - Replace the files inside the same `DictFloat-dev` folder.
+   - Open `chrome://extensions` and click DictFloat's **Reload** icon.
+   - Refresh the test webpage.
+5. Do **not** remove the extension during normal development. Removing it clears Chrome extension storage.
 
-### Deterministic toolbar click / 图标点击更可靠
+## Restoring dictionaries after a mistaken removal / 误删扩展后的恢复
 
-Toolbar open/lookup messages now acknowledge completion only after DictFloat has created or repaired its single root. This prevents a fast follow-up repair message from racing the first panel render.
+1. Load DictFloat again from the same fixed folder.
+2. Open Settings → **Backup & recovery → Import backup**.
+3. Click **Reconnect dictionary root**.
+4. Select the common parent directory that contains your dictionaries.
+5. Wait for DictFloat to relink MDX sources and restore Wudao if the four files are present.
 
-### Single window still enforced / 仍坚持唯一窗口
-
-The reader-mode fix keeps the existing single-window rules:
-
-- one `#dictfloat-root` per document
-- one visible panel or one minimized bar
-- Search, History, Add, Edit, and Return replace content inside the same window
-- stale content-script roots are removed before the current instance renders
-
-## Upgrade notes / 更新说明
-
-1. Replace the old extension folder with v0.4.2.
-2. In `chrome://extensions`, click **Reload** for DictFloat.
-3. Reload the webpage where you use reader mode, or close and reopen that tab.
-4. Open your reader mode first, then click the DictFloat toolbar icon.
-
-## Current dictionary capabilities
-
-- local editable glossaries
-- source ordering and source collapse
-- optional Wudao offline pack
-- linked MDX text lookup with on-demand block reads
-- optional safe original CSS rendering for linked dictionaries
-- online fallback
-
-MDX/MDD media, custom dictionary JavaScript, external fonts, LZO blocks, and protected record blocks remain outside the current performance-first scope.
+MDX source configuration, names, enable state, CSS mode, and lookup order are restored. Original `.mdx`, `.mdd`, `.css`, and Wudao files continue to stay in your own folders.

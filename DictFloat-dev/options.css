@@ -177,3 +177,16 @@ code { padding:1px 4px; border-radius:4px; background:#f0f3f7; font-family:ui-mo
   .source-drag-handle { color:#8191a8; }
   .source-drag-handle:hover { background:#25344b; color:#d8e4f4; }
 }
+
+/* Backup & recovery: deliberately small, secondary controls. */
+.recovery-card .hint { max-width:640px; }
+.recovery-actions { margin-top:12px; }
+.recovery-details { margin-top:12px; border-top:1px solid #e7ecf3; padding-top:10px; }
+.recovery-details summary { width:max-content; cursor:pointer; color:#687991; font-size:12px; user-select:none; }
+.recovery-details summary:hover { color:#34455f; }
+input[type="checkbox"]:disabled { cursor:not-allowed; opacity:.45; }
+@media (prefers-color-scheme: dark) {
+  .recovery-details { border-color:#33445e; }
+  .recovery-details summary { color:#aab7ca; }
+  .recovery-details summary:hover { color:#e7edf7; }
+}

@@ -1,7 +1,7 @@
 importScripts('mdict-db.js', 'mdict-core.js');
 
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.4.2';
+const CONTENT_RUNTIME_VERSION = '0.4.4';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -259,9 +259,14 @@ function seedEntries() {
 
 function normalizeWudaoSource(source) {
   const input = source && typeof source === 'object' ? source : {};
+  const installed = !!input.installed;
+  const configured = !!input.configured || installed || !!input.needsReconnect;
   return {
-    installed: !!input.installed,
-    enabled: input.enabled !== false && !!input.installed,
+    installed,
+    configured,
+    needsReconnect: configured && !installed,
+    name: String(input.name || 'Wudao · Offline'),
+    enabled: input.enabled !== false && installed,
     importedAt: Number(input.importedAt || 0),
     totalSize: Number(input.totalSize || 0),
     recordCounts: {

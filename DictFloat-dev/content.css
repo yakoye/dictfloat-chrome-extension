@@ -15,14 +15,9 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-mini,
 .dictfloat-bubble { pointer-events: auto; }
 
-/* Manual popovers enter Chrome's top layer, so reader-mode overlays cannot
-   cover DictFloat. Override the browser's centered popover defaults. */
-.dictfloat-panel[popover],
-.dictfloat-mini[popover],
-.dictfloat-bubble[popover] {
-  inset: auto !important;
-  margin: 0 !important;
-}
+/* DictFloat deliberately stays in a fixed top-level host rather than the
+   browser popover layer. Manual popovers can reset coordinates to the upper
+   left and break dragging on reader-mode overlays. */
 
 .dictfloat-panel {
   width: 380px;
@@ -55,10 +50,14 @@ button { -webkit-appearance: none; appearance: none; }
   align-items: center;
   gap: 7px;
   padding: 0 8px 0 11px;
-  cursor: move;
+  cursor: grab;
   border-bottom: 1px solid #e8edf4;
   user-select: none;
+  touch-action: none;
 }
+.dictfloat-dragging,
+.dictfloat-dragging .dictfloat-head { cursor: grabbing !important; }
+
 .dark .dictfloat-head { border-bottom-color: #2a364a; }
 .dictfloat-branddot {
   width: 9px;

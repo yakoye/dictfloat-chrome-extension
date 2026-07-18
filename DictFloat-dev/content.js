@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.4.2';
+  const RUNTIME_VERSION = '0.4.4';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -54,7 +54,8 @@
     rootPromise: null,
     destroyed: false,
     themeMedia: null,
-    themeListener: null
+    themeListener: null,
+    dragCleanup: null
   };
 
   const instance = { version: RUNTIME_VERSION, token: INSTANCE_TOKEN, destroy: destroyInstance };
@@ -148,6 +149,8 @@
     state.themeMedia?.removeEventListener?.('change', state.themeListener);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     chrome.storage.onChanged.removeListener(onStorageChanged);
+    state.dragCleanup?.();
+    state.dragCleanup = null;
     removeBubble();
     if (state.mount) {
       [...state.mount.children].forEach((node) => hideFromTopLayer(node));
@@ -227,9 +230,9 @@
 
   function promoteHost(host) {
     if (!host || !host.isConnected) return;
-    // Some reading overlays use the maximum normal stacking level. Keep our
-    // host as the final html child and give it an inline fallback layer.
-    // The visible panel itself is also promoted to the browser top layer below.
+    // Keep the root as the final html child. This matches the stable model used
+    // by the user's other floating extensions: fixed positioning + the maximum
+    // normal stacking layer, without browser popover positioning.
     host.style.setProperty('all', 'initial', 'important');
     host.style.setProperty('position', 'fixed', 'important');
     host.style.setProperty('inset', '0', 'important');
@@ -238,6 +241,7 @@
     host.style.setProperty('opacity', '1', 'important');
     host.style.setProperty('z-index', '2147483647', 'important');
     host.style.setProperty('pointer-events', 'none', 'important');
+    host.removeAttribute('popover');
     if (host.parentNode !== document.documentElement || document.documentElement.lastElementChild !== host) {
       document.documentElement.append(host);
     }
@@ -251,24 +255,23 @@
   }
 
   function showInTopLayer(node) {
+    // Manual popovers ignore the panel's fixed coordinates in some Chrome
+    // builds and make pointer dragging unreliable. DictFloat intentionally
+    // uses the same fixed-root strategy as Quick Note Float / RegCalc64.
+    // Remove any legacy popover state left by v0.4.2, then rely on the root's
+    // final-DOM position and max normal z-index.
     if (!node) return false;
-    // Popover=manual uses Chrome's top layer, above reader-mode overlays and
-    // fullscreen fixed containers. Fallback remains the explicit max z-index.
-    if (typeof node.showPopover !== 'function') return false;
-    try {
-      node.setAttribute('popover', 'manual');
-      node.showPopover();
-      return true;
-    } catch (_) {
-      return false;
-    }
+    hideFromTopLayer(node);
+    node.removeAttribute('popover');
+    return false;
   }
 
   function hideFromTopLayer(node) {
-    if (!node || typeof node.hidePopover !== 'function') return;
+    if (!node) return;
     try {
-      if (node.matches?.(':popover-open')) node.hidePopover();
+      if (typeof node.hidePopover === 'function' && node.matches?.(':popover-open')) node.hidePopover();
     } catch (_) {}
+    try { node.removeAttribute('popover'); } catch (_) {}
   }
 
   function pruneDuplicateRoots() {
@@ -279,6 +282,8 @@
   }
 
   function clearMount() {
+    state.dragCleanup?.();
+    state.dragCleanup = null;
     if (!state.mount) return;
     [...state.mount.children].forEach((node) => {
       if (node.tagName !== 'STYLE') {
@@ -1423,9 +1428,13 @@
 
   function normalizeWudaoSource(source) {
     const input = source && typeof source === 'object' ? source : {};
+    const installed = !!input.installed;
     return {
-      installed: !!input.installed,
-      enabled: input.enabled !== false && !!input.installed,
+      installed,
+      configured: !!input.configured || installed || !!input.needsReconnect,
+      needsReconnect: !!input.needsReconnect && !installed,
+      name: String(input.name || 'Wudao · Offline'),
+      enabled: input.enabled !== false && installed,
       totalSize: Number(input.totalSize || 0),
       recordCounts: input.recordCounts || { en: 0, zh: 0 }
     };
@@ -1618,52 +1627,86 @@
 
   function getPosition() {
     const width = Math.min(panelWidth(), Math.max(280, window.innerWidth - 24));
+    // Default to the upper-right 10% zone requested for DictFloat. A saved
+    // location always wins, and both dimensions are clamped after a resize.
+    const rightGap = Math.max(18, Math.round(window.innerWidth * 0.10));
+    const topGap = Math.max(18, Math.round(window.innerHeight * 0.10));
     const fallback = {
-      left: Math.max(12, window.innerWidth - width - 28),
-      top: Math.max(12, Math.min(88, window.innerHeight - 320))
+      left: Math.max(12, window.innerWidth - width - rightGap),
+      top: Math.max(12, Math.min(topGap, window.innerHeight - 320))
     };
     const pos = state.position || fallback;
+    const left = Number(pos.left);
+    const top = Number(pos.top);
     return {
-      left: Math.min(Math.max(6, Number(pos.left) || fallback.left), Math.max(6, window.innerWidth - width - 6)),
-      top: Math.min(Math.max(6, Number(pos.top) || fallback.top), Math.max(6, window.innerHeight - 38))
+      left: Math.min(Math.max(6, Number.isFinite(left) ? left : fallback.left), Math.max(6, window.innerWidth - width - 6)),
+      top: Math.min(Math.max(6, Number.isFinite(top) ? top : fallback.top), Math.max(6, window.innerHeight - 38))
     };
   }
 
   function makeDraggable(panel, handle) {
-    let drag = null;
-    handle.addEventListener('pointerdown', (event) => {
-      if (event.target.closest('button')) return;
-      drag = { x: event.clientX, y: event.clientY, left: parseInt(panel.style.left, 10), top: parseInt(panel.style.top, 10) };
-      handle.setPointerCapture?.(event.pointerId);
-    });
-    handle.addEventListener('pointermove', (event) => {
-      if (!drag) return;
-      const width = panel.offsetWidth;
-      const left = Math.min(Math.max(6, drag.left + event.clientX - drag.x), Math.max(6, window.innerWidth - width - 6));
-      const top = Math.min(Math.max(6, drag.top + event.clientY - drag.y), Math.max(6, window.innerHeight - 40));
-      panel.style.left = `${left}px`;
-      panel.style.top = `${top}px`;
-    });
-    handle.addEventListener('pointerup', () => persistPanelPosition(panel, () => { drag = null; }));
-    handle.addEventListener('pointercancel', () => { drag = null; });
+    bindDraggable(panel, handle);
   }
 
   function makeMiniDraggable(mini) {
+    bindDraggable(mini, mini);
+  }
+
+  function bindDraggable(node, handle) {
     let drag = null;
-    mini.addEventListener('pointerdown', (event) => {
-      if (event.target.closest('button')) return;
-      drag = { x: event.clientX, y: event.clientY, left: parseInt(mini.style.left, 10), top: parseInt(mini.style.top, 10) };
-      mini.setPointerCapture?.(event.pointerId);
-    });
-    mini.addEventListener('pointermove', (event) => {
+    const previousUserSelect = { value: '', priority: '' };
+
+    const endDrag = (persist = true) => {
       if (!drag) return;
-      const left = Math.min(Math.max(6, drag.left + event.clientX - drag.x), Math.max(6, window.innerWidth - mini.offsetWidth - 6));
-      const top = Math.min(Math.max(6, drag.top + event.clientY - drag.y), Math.max(6, window.innerHeight - mini.offsetHeight - 6));
-      mini.style.left = `${left}px`;
-      mini.style.top = `${top}px`;
-    });
-    mini.addEventListener('pointerup', () => persistPanelPosition(mini, () => { drag = null; }));
-    mini.addEventListener('pointercancel', () => { drag = null; });
+      drag = null;
+      node.classList.remove('dictfloat-dragging');
+      document.documentElement.style.setProperty('user-select', previousUserSelect.value, previousUserSelect.priority);
+      if (persist) void persistPanelPosition(node);
+    };
+
+    const onMove = (event) => {
+      if (!drag) return;
+      event.preventDefault();
+      const width = node.offsetWidth || panelWidth();
+      const height = node.offsetHeight || 40;
+      const left = Math.min(Math.max(6, drag.left + event.clientX - drag.x), Math.max(6, window.innerWidth - width - 6));
+      const top = Math.min(Math.max(6, drag.top + event.clientY - drag.y), Math.max(6, window.innerHeight - height - 6));
+      node.style.left = `${Math.round(left)}px`;
+      node.style.top = `${Math.round(top)}px`;
+    };
+
+    const onUp = () => endDrag(true);
+    const onCancel = () => endDrag(false);
+
+    const onDown = (event) => {
+      if (event.button !== 0 || event.target.closest?.('button, input, textarea, select, a, label')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = node.getBoundingClientRect();
+      drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      previousUserSelect.value = document.documentElement.style.getPropertyValue('user-select');
+      previousUserSelect.priority = document.documentElement.style.getPropertyPriority('user-select');
+      document.documentElement.style.setProperty('user-select', 'none', 'important');
+      node.classList.add('dictfloat-dragging');
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) {}
+    };
+
+    // Use window capture listeners instead of relying only on pointermove on the
+    // header. This keeps dragging reliable when the pointer leaves the titlebar
+    // or crosses a reader-mode overlay.
+    handle.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+
+    state.dragCleanup?.();
+    state.dragCleanup = () => {
+      handle.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+      endDrag(false);
+    };
   }
 
   async function persistPanelPosition(node, done) {

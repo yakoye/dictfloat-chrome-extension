@@ -72,6 +72,17 @@
     }
   }
 
+  async function clearLinkedSources() {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(SOURCES, 'readwrite');
+      tx.objectStore(SOURCES).clear();
+      await txDone(tx);
+    } finally {
+      db.close();
+    }
+  }
+
   async function hasReadPermission(handle) {
     if (!handle?.queryPermission) return true;
     try {
@@ -85,6 +96,7 @@
     putLinkedSource,
     getLinkedSource,
     deleteLinkedSource,
+    clearLinkedSources,
     hasReadPermission
   };
 })();
