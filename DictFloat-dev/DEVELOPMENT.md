@@ -43,3 +43,8 @@ Reloading an unpacked extension invalidates the content script already running i
 3. Continue testing.
 
 Clicking the DictFloat toolbar icon also checks the content-script version and reinjects the current script when required, but a normal page refresh remains the cleanest way to finish a development reload.
+
+
+## Selection bubble behavior
+
+The selection lookup control is intentionally created only after mouse/touch selection ends. It anchors above the selection’s upper-right edge, so it cannot sit in the normal left-to-right drag path.

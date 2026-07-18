@@ -1,4 +1,4 @@
-# DictFloat v0.4.8 — Data safety & recovery snapshots
+# DictFloat v0.4.9 — Data safety & recovery snapshots
 
 ## What changed / 本版重点
 
@@ -38,6 +38,11 @@
 - Snapshot restore brings back DictFloat settings and editable data.
 - MDX/MDD records are restored as configuration; Chrome may ask you to reconnect the original directory if its file permission/handle is gone.
 - Wudao snapshot records its source configuration only. The 83 MB data pack is not duplicated in snapshots.
+
+## v0.4.9 — Selection bubble placement
+
+- The pink selection lookup button now appears above the selected text’s upper-right edge.
+- It is hidden throughout an active mouse/touch selection drag, preventing it from blocking rightward selection.
 
 ## v0.4.8 — Safe reload recovery / 安全刷新恢复
 

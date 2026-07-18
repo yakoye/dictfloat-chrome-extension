@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.4.8'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.4.9'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -67,6 +67,10 @@
     themeListener: null,
     dragCleanup: null,
     selectionTimer: null,
+    // Keep the lookup bubble out of the active drag path. Showing it while
+    // the pointer is still selecting text can intercept a rightward drag.
+    selectionPointerActive: false,
+    selectionLastPointerAt: 0,
     historyUndo: null
   };
 
@@ -110,6 +114,9 @@
     state.historyUndo?.timer && clearTimeout(state.historyUndo.timer);
     state.historyUndo = null;
     // Do not call Chrome APIs here: they are precisely what just became invalid.
+    try { window.removeEventListener('pointerdown', handleSelectionStart, true); } catch (_) {}
+    try { window.removeEventListener('mousedown', handleSelectionStart, true); } catch (_) {}
+    try { window.removeEventListener('touchstart', handleSelectionStart, true); } catch (_) {}
     try { window.removeEventListener('mouseup', handleSelection, true); } catch (_) {}
     try { window.removeEventListener('pointerup', handleSelection, true); } catch (_) {}
     try { window.removeEventListener('touchend', handleSelection, true); } catch (_) {}
@@ -223,6 +230,12 @@
     // Reader-mode extensions may stop mouse events at document level or render
     // their content inside a ShadowRoot / about:blank iframe. Listen from window
     // capture phase first, then use selectionchange and keyboard fallbacks.
+    // A bubble must only appear after the selection gesture ends. During an
+    // active drag it would sit immediately to the right of the text and can
+    // steal the pointer when the user keeps extending the selection.
+    window.addEventListener('pointerdown', handleSelectionStart, true);
+    window.addEventListener('mousedown', handleSelectionStart, true);
+    window.addEventListener('touchstart', handleSelectionStart, true);
     window.addEventListener('mouseup', handleSelection, true);
     window.addEventListener('pointerup', handleSelection, true);
     window.addEventListener('touchend', handleSelection, true);
@@ -277,6 +290,9 @@
   function destroyInstance() {
     if (state.destroyed) return;
     state.destroyed = true;
+    window.removeEventListener('pointerdown', handleSelectionStart, true);
+    window.removeEventListener('mousedown', handleSelectionStart, true);
+    window.removeEventListener('touchstart', handleSelectionStart, true);
     window.removeEventListener('mouseup', handleSelection, true);
     window.removeEventListener('pointerup', handleSelection, true);
     window.removeEventListener('touchend', handleSelection, true);
@@ -1845,21 +1861,36 @@
   // reading copy in an open ShadowRoot or an about:blank frame. Window-capture
   // receives composed pointer events before a reader can stop them; selection-
   // change and keyboard paths cover drag selection and Shift+Arrow selection.
+  function handleSelectionStart(event) {
+    if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
+    state.selectionPointerActive = true;
+    state.selectionLastPointerAt = Date.now();
+    // Never leave a clickable element inside the path of a new selection.
+    removeBubble();
+  }
+
   function handleSelection(event) {
     if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
-    scheduleSelectionCheck(event, 20);
+    state.selectionPointerActive = false;
+    state.selectionLastPointerAt = Date.now();
+    // Let the browser settle the final Range before calculating its anchor.
+    scheduleSelectionCheck(event, 70);
   }
 
   function handleSelectionKeyup(event) {
     if (!isCurrentInstance() || eventIsFromDictFloat(event)) return;
     if (event.key === 'Shift' || event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') {
-      scheduleSelectionCheck(event, 24);
+      // Keyboard selection has no pointer drag, so a short settle delay is enough.
+      scheduleSelectionCheck(event, 80);
     }
   }
 
   function handleSelectionChange(event) {
     if (!isCurrentInstance()) return;
-    scheduleSelectionCheck(event, 110);
+    // Do not show a bubble halfway through a mouse/touch drag. This is the
+    // source of the rightward-selection stutter seen on dense reading pages.
+    if (state.selectionPointerActive) return;
+    scheduleSelectionCheck(event, 140);
   }
 
   function eventIsFromDictFloat(event) {
@@ -1886,6 +1917,9 @@
 
   function inspectSelection(contextNode) {
     if (!isCurrentInstance()) return;
+    // A queued selectionchange can arrive after pointerdown. Keep the bubble
+    // hidden until pointerup/touchend has finalized the selection.
+    if (state.selectionPointerActive) return;
     const snapshot = getSelectionSnapshot(contextNode);
     const text = snapshot?.text || '';
     if (!text || text.length > 160 || state.settings.selectionMode === 'off') {
@@ -1939,11 +1973,15 @@
 
   function rectForRange(range) {
     if (!range) return null;
-    let rect = range.getBoundingClientRect?.();
-    if (!rect || (!rect.width && !rect.height)) {
-      const rects = range.getClientRects?.();
-      if (rects?.length) rect = rects[rects.length - 1];
+    const clientRects = [...(range.getClientRects?.() || [])]
+      .filter((item) => Number.isFinite(item?.left) && Number.isFinite(item?.top) && (item.width || item.height));
+    // For a multi-line selection, the bubble belongs at the upper-right of the
+    // selection block, not next to the final character where a drag may end.
+    if (clientRects.length) {
+      clientRects.sort((a, b) => (a.top - b.top) || (b.right - a.right));
+      return clientRects[0];
     }
+    const rect = range.getBoundingClientRect?.();
     if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)) return null;
     return rect;
   }
@@ -1956,8 +1994,14 @@
     bubble.type = 'button';
     bubble.title = `Look up “${text.slice(0, 42)}”`;
     bubble.setAttribute('aria-label', 'Look up selected text');
-    const left = Math.min(window.innerWidth - 31, Math.max(6, rect.right + 5));
-    const top = Math.min(window.innerHeight - 31, Math.max(6, rect.top - 3));
+    const bubbleSize = 26;
+    const edge = 6;
+    const gap = 7;
+    // Put the lookup control above the selection's right edge. It stays out
+    // of the natural left-to-right drag path, so users can keep extending a
+    // selection without running into a clickable element.
+    const left = Math.min(window.innerWidth - bubbleSize - edge, Math.max(edge, rect.right - bubbleSize));
+    const top = Math.min(window.innerHeight - bubbleSize - edge, Math.max(edge, rect.top - bubbleSize - gap));
     bubble.style.cssText = `position:fixed;left:${left}px;top:${top}px;z-index:2147483647;pointer-events:auto;`;
     bubble.addEventListener('mousedown', (event) => event.preventDefault());
     bubble.addEventListener('click', () => {

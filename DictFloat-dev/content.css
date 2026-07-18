@@ -423,6 +423,10 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-mini button:hover { background:#27344a; }
 
 .dictfloat-bubble {
+  /* The bubble is shown only after selection ends; this keeps it outside the
+     drag path and prevents pointer capture while extending a selection. */
+  touch-action:none;
+  user-select:none;
   width:26px;
   height:26px;
   display:flex;
