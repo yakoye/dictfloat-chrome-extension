@@ -1,25 +1,34 @@
-# DictFloat v0.2.4
+# DictFloat v0.3.0
 
-Compact floating Chrome dictionary with local-first technical glossaries.
+Compact Chrome floating dictionary for local technical glossaries, selection lookup, and online fallback.
 
-## v0.2.4
-- Fixed forced Light theme: the floating panel is now fully opaque white even if Chrome and the webpage are dark.
-- Added multi-glossary management in Settings: create, rename, enable/disable, or delete local glossaries.
-- Search respects enabled glossaries only.
-- New and saved online entries can be assigned to a chosen local glossary.
-- JSON export/import preserves glossary grouping; CSV includes a `dictionary` column.
+## v0.3.0 highlights / 本版重点
 
-## Existing features
-- Toolbar click opens a compact 380px floating window.
-- Selection lookup with a pink bubble or optional auto-open.
-- Local glossary search plus online definition/translation fallback.
-- History, favorites, import/export, and editable entries.
+- **Shadow-DOM floating window**: the panel no longer inherits button, input, dark-mode, or focus styles from GitHub, documentation sites, or other host pages.
+- **Reworked minimize**: the title-bar minus button now collapses to a compact DictFloat mini bar with a restore control, instead of a detached oversized lookup button.
+- **Related terms**: local entries can store and click through related terms such as `MPS`, `MRRS`, `RCB`, and `Completion Timeout`.
+- **History management**: the History tab now has a Clear action.
+- **Built-in glossary protection**: starter entries can be copied to your own glossary instead of being edited in place.
+- **MDX / MDD beta intake**: Settings can now select local `.mdx` and optional matching `.mdd` files, parse the MDX XML header, identify engine / encoding metadata, pair matching MDD filenames, manage source enable state, and export/import source metadata with your backup.
+- **MDX / MDD limitation in v0.3.0**: this build deliberately stops at local source registration and header validation. It does **not** yet decode compressed/encrypted key blocks or render MDX entries/resources. Dictionary files themselves are not copied into Chrome storage, so multi-GB files are never silently duplicated.
 
-MDX/MDD import remains planned for v0.3; this release establishes the multi-source data model it needs.
+## Existing features / 已有功能
 
+- Toolbar icon opens a compact, draggable 380px window by default.
+- Small 12px default UI with light, dark, and Follow Chrome modes.
+- Selected-text lookup bubble or optional automatic lookup.
+- Local multi-glossary search: aliases, Chinese text, tags, related terms, and definitions are searchable.
+- Local entry creation, editing, favorites, copying, history, JSON backup, and CSV import/export.
+- Online English definition and Chinese/English translation fallback; saved online results can become local entries.
 
-## v0.2.4
+## Installation / 安装
 
-- Fixed the Settings layout: font size, panel width, and their `px` units stay on one line.
-- Fixed the online lookup switch row so its label and checkbox remain aligned.
-- Added a concise v0.3 MDX/MDD development status card; local glossary sources are already separated for the upcoming importer.
+1. Extract the ZIP to a stable folder.
+2. Open `chrome://extensions`.
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the extracted folder.
+5. After an update, use the refresh button on the DictFloat extension card, then refresh any test page.
+
+## MDX / MDD beta workflow / MDX / MDD 测试流程
+
+Open **Settings** → **MDX / MDD dictionaries** → **Add MDX / MDD files**. Select one `.mdx` and its matching `.mdd` resources in the same picker. DictFloat reads metadata locally and lists the source. It will remain marked `Header ready · decoder next` until the actual MDX decoder is integrated.

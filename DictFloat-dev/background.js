@@ -1,32 +1,21 @@
 const MENU_ID = 'dictfloat-lookup-selection';
 
 chrome.runtime.onInstalled.addListener(async () => {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: MENU_ID,
-      title: 'Look up “%s” in DictFloat',
-      contexts: ['selection']
-    });
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: MENU_ID,
+    title: 'Look up “%s” in DictFloat',
+    contexts: ['selection']
   });
   await migrateStorage();
 });
 
 chrome.runtime.onStartup.addListener(migrateStorage);
-migrateStorage();
+void migrateStorage();
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
-  try {
-    await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_TOGGLE' });
-  } catch (_) {
-    try {
-      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-      await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_TOGGLE' });
-    } catch (error) {
-      console.warn('DictFloat cannot run on this page.', error);
-    }
-  }
+  await sendToTab(tab.id, { type: 'DICTFLOAT_TOGGLE' });
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -42,34 +31,55 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function migrateStorage() {
-  const existing = await chrome.storage.local.get(['dictFloatEntries', 'dictFloatSettings', 'dictFloatDictionaries']);
-  const settings = { ...defaultSettings(), ...(existing.dictFloatSettings || {}) };
-  if (settings.theme === 'light' && !existing.dictFloatSettings?.themeLockedByUser) {
-    // Legacy installs treated light as the old default. New default is system.
-    settings.theme = 'system';
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== MENU_ID || !tab?.id || !info.selectionText) return;
+  await sendToTab(tab.id, { type: 'DICTFLOAT_LOOKUP', query: info.selectionText.trim() });
+});
+
+async function sendToTab(tabId, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+  } catch (_) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+      await chrome.tabs.sendMessage(tabId, message);
+    } catch (error) {
+      console.warn('DictFloat cannot run on this page.', error);
+    }
   }
+}
+
+async function migrateStorage() {
+  const existing = await chrome.storage.local.get([
+    'dictFloatEntries',
+    'dictFloatSettings',
+    'dictFloatDictionaries',
+    'dictFloatMdictSources'
+  ]);
+  const settings = { ...defaultSettings(), ...(existing.dictFloatSettings || {}) };
+  if (settings.theme === 'light' && !existing.dictFloatSettings?.themeLockedByUser) settings.theme = 'system';
   const dictionaries = normalizeDictionaries(existing.dictFloatDictionaries);
   let entries = Array.isArray(existing.dictFloatEntries) ? existing.dictFloatEntries : seedEntries();
   entries = entries.map((entry) => ({
     ...entry,
     dictionaryId: entry.dictionaryId || inferDictionaryId(entry),
+    related: Array.isArray(entry.related) ? entry.related : [],
     updatedAt: entry.updatedAt || Date.now()
   }));
+  const mdictSources = Array.isArray(existing.dictFloatMdictSources) ? existing.dictFloatMdictSources : [];
   await chrome.storage.local.set({
     dictFloatSettings: settings,
     dictFloatDictionaries: dictionaries,
-    dictFloatEntries: entries
+    dictFloatEntries: entries,
+    dictFloatMdictSources: mdictSources
   });
 }
 
 function defaultSettings() {
   return {
     selectionMode: 'bubble',
-    compactMode: true,
     fontSize: 12,
     panelWidth: 380,
-    showPhonetic: true,
     theme: 'system',
     onlineLookup: true
   };
@@ -83,7 +93,6 @@ function defaultDictionaries() {
 }
 
 function normalizeDictionaries(input) {
-  const defaults = defaultDictionaries();
   const source = Array.isArray(input) ? input : [];
   const mapped = source.filter(Boolean).map((item) => ({
     id: String(item.id || crypto.randomUUID()),
@@ -92,9 +101,9 @@ function normalizeDictionaries(input) {
     builtIn: !!item.builtIn,
     createdAt: item.createdAt || Date.now()
   }));
-  for (const item of defaults) {
+  defaultDictionaries().forEach((item) => {
     if (!mapped.some((dictionary) => dictionary.id === item.id)) mapped.push(item);
-  }
+  });
   return mapped;
 }
 
@@ -110,14 +119,12 @@ async function lookupOnline(rawQuery) {
   const translationPromise = fetchJson(
     `https://api.mymemory.translated.net/get?q=${encodeURIComponent(query)}&langpair=${encodeURIComponent(translationPair)}`
   ).then(parseMyMemory).catch(() => '');
-
   const canUseDictionary = !isChinese && /^[A-Za-z][A-Za-z\s'’-]{0,80}$/.test(query);
   const dictionaryPromise = canUseDictionary
     ? fetchJson(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(query)}`)
         .then(parseDictionary)
-        .catch(() => ({ term: query, phonetic: '', definitions: [], providers: [] }))
-    : Promise.resolve({ term: query, phonetic: '', definitions: [], providers: [] });
-
+        .catch(() => ({ term: query, phonetic: '', definitions: [] }))
+    : Promise.resolve({ term: query, phonetic: '', definitions: [] });
   const [translation, dictionary] = await Promise.all([translationPromise, dictionaryPromise]);
   const cleanTranslation = normalizeComparable(translation) === normalizeComparable(query) ? '' : translation;
   const providers = [];
@@ -147,13 +154,12 @@ async function fetchJson(url) {
 
 function parseMyMemory(data) {
   const text = data?.responseData?.translatedText;
-  if (!text || typeof text !== 'string') return '';
-  return decodeEntities(text).trim();
+  return typeof text === 'string' ? decodeEntities(text).trim() : '';
 }
 
 function parseDictionary(data) {
   const first = Array.isArray(data) ? data[0] : null;
-  if (!first) return { term: '', phonetic: '', definitions: [], providers: [] };
+  if (!first) return { term: '', phonetic: '', definitions: [] };
   const phonetic = first.phonetic || (first.phonetics || []).find((item) => item?.text)?.text || '';
   const definitions = [];
   for (const meaning of first.meanings || []) {
@@ -163,28 +169,21 @@ function parseDictionary(data) {
     }
     if (definitions.length >= 4) break;
   }
-  return { term: first.word || '', phonetic, definitions, providers: [] };
+  return { term: first.word || '', phonetic, definitions };
 }
 
 function normalizeComparable(value) { return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
-function decodeEntities(value) { return value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== MENU_ID || !tab?.id || !info.selectionText) return;
-  try {
-    await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_LOOKUP', query: info.selectionText.trim(), open: true });
-  } catch (error) {
-    console.warn('DictFloat lookup failed.', error);
-  }
-});
+function decodeEntities(value) {
+  return value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
 
 function seedEntries() {
   const now = Date.now();
   return [
-    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'PCIe', aliases: ['Peripheral Component Interconnect Express', 'PCI Express'], chinese: '高速外设互连标准', definition: 'A high-speed serial computer expansion bus standard used to connect devices such as GPUs, SSDs, NICs, and accelerators.', tags: ['PCIe', 'Interconnect'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
-    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'RCB', aliases: ['Read Completion Boundary'], chinese: '读完成边界', definition: 'A PCIe boundary rule that constrains where Read Completion packets may be split.', tags: ['PCIe', 'Completion', 'TLP'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
-    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MPS', aliases: ['Max Payload Size', 'Maximum Payload Size'], chinese: '最大有效载荷大小', definition: 'The maximum payload size that a PCIe Transaction Layer Packet may carry.', tags: ['PCIe', 'TLP'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
-    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MRRS', aliases: ['Max Read Request Size', 'Maximum Read Request Size'], chinese: '最大读请求大小', definition: 'The maximum amount of data requested by a PCIe Memory Read Request.', tags: ['PCIe', 'TLP'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
-    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'Completion Timeout', aliases: ['Cpl Timeout', 'Completion Time-out'], chinese: '完成超时', definition: 'The maximum allowed time to receive a Completion for a non-posted PCIe request before timeout handling is triggered.', tags: ['PCIe', 'Completion', 'Error Handling'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now }
+    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'PCIe', aliases: ['Peripheral Component Interconnect Express', 'PCI Express'], chinese: '高速外设互连标准', definition: 'A high-speed serial computer expansion bus standard used to connect devices such as GPUs, SSDs, NICs, and accelerators.', tags: ['PCIe', 'Interconnect'], related: ['MPS', 'MRRS', 'RCB'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
+    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'RCB', aliases: ['Read Completion Boundary'], chinese: '读完成边界', definition: 'A PCIe boundary rule that constrains where Read Completion packets may be split.', tags: ['PCIe', 'Completion', 'TLP'], related: ['Completion Timeout', 'MPS'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
+    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MPS', aliases: ['Max Payload Size', 'Maximum Payload Size'], chinese: '最大有效载荷大小', definition: 'The maximum payload size that a PCIe Transaction Layer Packet may carry.', tags: ['PCIe', 'TLP'], related: ['MRRS', 'RCB'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
+    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'MRRS', aliases: ['Max Read Request Size', 'Maximum Read Request Size'], chinese: '最大读请求大小', definition: 'The maximum amount of data requested by a PCIe Memory Read Request.', tags: ['PCIe', 'TLP'], related: ['MPS', 'Completion Timeout'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now },
+    { id: crypto.randomUUID(), dictionaryId: 'pcie-starter', term: 'Completion Timeout', aliases: ['Cpl Timeout', 'Completion Time-out'], chinese: '完成超时', definition: 'The maximum allowed time to receive a Completion for a non-posted PCIe request before timeout handling is triggered.', tags: ['PCIe', 'Completion', 'Error Handling'], related: ['RCB', 'MRRS'], category: 'PCIe', source: 'DictFloat starter glossary', updatedAt: now }
   ];
 }

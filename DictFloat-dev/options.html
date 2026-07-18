@@ -8,57 +8,52 @@
 </head>
 <body>
   <main class="shell">
-    <header>
-      <div class="brand"><span></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.2.4</div>
+    <header class="page-header">
+      <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
+      <div class="version">v0.3.0</div>
     </header>
 
     <section class="card">
       <h2>Selection lookup</h2>
-      <p class="hint">Choose how DictFloat responds when you select text on a webpage.</p>
-      <label class="row"><span>Mode</span><select id="selectionMode"><option value="bubble">Show pink lookup bubble</option><option value="auto">Open lookup window automatically</option><option value="off">Off</option></select></label>
+      <p class="hint">Choose what happens after text is selected on a webpage.</p>
+      <label class="setting-row"><span>Mode</span><select id="selectionMode"><option value="bubble">Show pink lookup bubble</option><option value="auto">Open lookup window automatically</option><option value="off">Off</option></select></label>
     </section>
 
     <section class="card">
       <h2>Floating window</h2>
-      <div class="grid window-grid">
-        <label class="field">
-          <span>Font size</span>
-          <span class="input-with-unit"><input id="fontSize" type="number" min="10" max="15" step="1"><small>px</small></span>
-        </label>
-        <label class="field">
-          <span>Panel width</span>
-          <span class="input-with-unit"><input id="panelWidth" type="number" min="320" max="520" step="10"><small>px</small></span>
-        </label>
-        <label class="field">
-          <span>Theme</span>
-          <select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select>
-        </label>
+      <div class="window-grid">
+        <label class="field"><span>Font size</span><span class="input-with-unit"><input id="fontSize" type="number" min="10" max="15" step="1"><small>px</small></span></label>
+        <label class="field"><span>Panel width</span><span class="input-with-unit"><input id="panelWidth" type="number" min="320" max="520" step="10"><small>px</small></span></label>
+        <label class="field"><span>Theme</span><select id="theme"><option value="system">Follow Chrome</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
       </div>
-      <p class="hint">Light mode now uses an opaque white panel, so it stays white even when Chrome and the webpage are dark.</p>
+      <div class="inline-actions"><button id="resetWindowPosition" type="button">Reset window position</button></div>
+      <p class="hint">Light uses an opaque white window, even when Chrome and the webpage are dark.</p>
     </section>
 
     <section class="card">
       <h2>Online lookup</h2>
-      <p class="hint">Use public online dictionary and translation services when local entries do not cover the query. No API key is required in this version.</p>
+      <p class="hint">Look up the word or phrase after you press Enter or use selection lookup. No API key is needed.</p>
       <label class="toggle-row"><span>Search online after Enter / selection lookup</span><input id="onlineLookup" type="checkbox"></label>
-      <p class="hint">Only the word or phrase you actively query is sent to an online provider. Local glossaries and page content stay on your device.</p>
+      <p class="hint">Only an actively queried term is sent to an online provider. Local glossaries and webpage content stay on this device.</p>
     </section>
 
     <section class="card">
-      <div class="section-title"><div><h2>Local glossaries</h2><p class="hint">Enable, disable, or create glossaries. Disabled glossaries stay stored locally but are excluded from search.</p></div><button id="addDictionary">+ New glossary</button></div>
+      <div class="section-title"><div><h2>Local glossaries</h2><p class="hint">Create separate PCIe, GPU, firmware, or learning glossaries. Disabled glossaries stay local but do not participate in search.</p></div><button id="addDictionary" type="button">+ New glossary</button></div>
       <div id="dictionaryList" class="dictionary-list"></div>
     </section>
 
     <section class="card">
-      <h2>My glossary</h2>
-      <p class="hint">JSON preserves glossary grouping and all fields. CSV is suitable for Excel and imports into My Glossary.</p>
-      <div class="actions"><button id="exportJson">Export JSON</button><button id="exportCsv">Export CSV</button><label class="file-btn">Import JSON / CSV<input id="importFile" type="file" accept=".json,.csv,application/json,text/csv"></label><button class="danger" id="clearEntries">Clear all entries</button></div>
-      <p id="status" class="status"></p>
+      <div class="section-title"><div><h2>MDX / MDD dictionaries <span class="beta-chip">Beta</span></h2><p class="hint">This first v0.3 step reads local MDX header metadata and records MDX / MDD pairs as independent sources. Full entry indexing and definition rendering are the next decoder step.</p></div></div>
+      <label class="file-btn source-file-btn">Add MDX / MDD files<input id="importMdictFiles" type="file" accept=".mdx,.mdd" multiple></label>
+      <p class="hint">Select one <code>.mdx</code> file and any matching <code>.mdd</code> resource files together. Files are inspected locally; this build stores source metadata only, not a copied multi-GB dictionary file.</p>
+      <div id="mdictSourceList" class="dictionary-list source-list"></div>
     </section>
 
-    <section class="card muted mdict-status">
-      <div class="section-title"><div><h2>MDX / MDD dictionaries</h2><p>v0.3 is in development. DictFloat now keeps glossary sources separate, so imported dictionaries will be managed independently from your own entries.</p></div><span class="status-chip">In development</span></div>
+    <section class="card">
+      <h2>Backup and import</h2>
+      <p class="hint">JSON preserves glossary grouping, related terms, and all entry fields. CSV is suitable for Excel.</p>
+      <div class="actions"><button id="exportJson" type="button">Export JSON</button><button id="exportCsv" type="button">Export CSV</button><label class="file-btn">Import JSON / CSV<input id="importFile" type="file" accept=".json,.csv,application/json,text/csv"></label><button class="danger" id="clearEntries" type="button">Clear all entries</button></div>
+      <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
   <script src="options.js"></script>
