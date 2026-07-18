@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DictFloat",
-  "version": "0.6.7",
-  "description": "Floating English dictionary and translator with local glossary, sentence translation, and custom AI providers.",
+  "version": "0.6.8",
+  "description": "Floating English dictionary with local glossaries, MDX/MDD, sentence translation, and custom AI providers.",
   "permissions": [
     "storage",
     "contextMenus",

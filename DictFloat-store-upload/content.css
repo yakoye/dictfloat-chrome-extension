@@ -414,30 +414,70 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-footer {
   min-height:38px;
   display:flex;
-  align-items:center;
-  gap:7px;
+  flex-direction:column;
+  align-items:stretch;
+  gap:4px;
   padding:6px 10px;
   border-top:1px solid #edf1f5;
   background:#fbfcfe;
 }
 .dark .dictfloat-footer { background:#151e2d; border-top-color:#2a374b; }
+.dictfloat-footer-row {
+  display:flex;
+  align-items:center;
+  gap:5px;
+  min-width:0;
+}
+.dictfloat-footer-main { justify-content:flex-start; }
+.dictfloat-quick-row {
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scrollbar-width:none;
+}
+.dictfloat-quick-row::-webkit-scrollbar { display:none; }
 .dictfloat-footer button {
-  min-height:25px;
+  min-height:24px;
   margin:0;
-  padding:4px 8px;
+  padding:3px 7px;
   border:1px solid #d8e1ec;
-  border-radius:7px;
+  border-radius:999px;
   background:#fff;
   color:#5e6e84;
   cursor:pointer;
   font-size:10px;
   white-space:nowrap;
 }
+.dictfloat-footer-main button { border-radius:7px; }
 .dictfloat-footer button:hover { background:#f2f5f9; color:#253147; }
 .dark .dictfloat-footer button { background:#1c293d; border-color:#35465f; color:#becadc; }
 .dark .dictfloat-footer button:hover { background:#293850; color:#fff; }
-.dictfloat-online-toggle { color:var(--df-accent-strong) !important; }
-.dark .dictfloat-online-toggle { color:color-mix(in srgb, var(--df-accent) 56%, white) !important; }
+.dictfloat-quick-label {
+  flex:0 0 auto;
+  color:#7d8da3;
+  font-size:10px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.dark .dictfloat-quick-label { color:#a4b2c5; }
+.dictfloat-quick-chip {
+  flex:0 0 auto;
+  min-height:21px !important;
+  padding:2px 6px !important;
+  font-size:10px !important;
+}
+.dictfloat-quick-chip.active,
+.dictfloat-online-toggle.active {
+  border-color:color-mix(in srgb, var(--df-accent) 42%, #d8e1ec) !important;
+  background:var(--df-accent-soft) !important;
+  color:var(--df-accent-strong) !important;
+}
+.dark .dictfloat-quick-chip.active,
+.dark .dictfloat-online-toggle.active {
+  border-color:color-mix(in srgb, var(--df-accent) 45%, #35465f) !important;
+  background:color-mix(in srgb, var(--df-accent) 18%, #172338) !important;
+  color:color-mix(in srgb, var(--df-accent) 58%, white) !important;
+}
+.dictfloat-ai-chip.active { font-weight:750; }
 
 .dictfloat-mini {
   height:32px;
