@@ -199,14 +199,7 @@
       if (state.entries.length) state.entries.slice(0, 5).forEach(entry => box.append(resultItem(entry)));
       return;
     }
-    if (!results.length) {
-      const empty = el('div', 'dictfloat-empty');
-      empty.innerHTML = `<strong>No local result</strong><br><span>Try another spelling, alias, tag, or add it to your glossary.</span>`;
-      const addCurrent = el('button', 'dictfloat-add-current', `+ Add “${truncate(state.query, 34)}”`);
-      addCurrent.addEventListener('click', () => { state.view = 'add'; state.draftEntry = null; renderContentOnly(); updateTabs(); });
-      empty.append(document.createElement('br'), addCurrent);
-      box.append(empty);
-    } else {
+    if (results.length) {
       results.forEach(entry => box.append(resultItem(entry)));
     }
     appendOnlineSection(box);
@@ -364,7 +357,6 @@
   function normalize(s) { return String(s||'').toLowerCase().replace(/[\s_\-./]+/g,' ').trim(); }
   function list(value) { return String(value||'').split(',').map(x=>x.trim()).filter(Boolean); }
   function formatCopy(e) { return `${e.term}${e.chinese ? `\n${e.chinese}` : ''}\n${e.definition}${e.aliases?.length?`\nAliases: ${e.aliases.join(', ')}`:''}`; }
-  function truncate(value, max) { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; }
 
   function onlineToDraft(data) {
     const definition = (data.definitions || []).slice(0, 3).map(item => item.definition).filter(Boolean).join('\n') || data.translation || '';

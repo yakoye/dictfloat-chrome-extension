@@ -1,4 +1,4 @@
-# DictFloat v0.2.0
+# DictFloat v0.2.1
 
 A compact, page-level floating dictionary for Chrome. DictFloat is designed for reading technical documents: type a term, select text on a page, look it up, and save useful terms into your own local glossary.
 
@@ -29,3 +29,7 @@ Online lookup sends only the query that you explicitly submit with Enter or the 
 ## Current scope
 
 MDX / MDD import is reserved for v0.3. This build does not claim to parse `.mdx` or `.mdd` files.
+
+
+## v0.2.1
+- Removed the redundant “No local result” empty-state prompt and its add button. Use the existing **+ Add** tab to create a local term instead.
