@@ -1,7 +1,7 @@
 #dictfloat-root, #dictfloat-root * { box-sizing: border-box; }
 #dictfloat-root { all: initial; }
 #dictfloat-root { position: fixed; z-index: 2147483646; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif; color: #253147; }
-.dictfloat-panel { width: 380px; max-width: min(380px, calc(100vw - 24px)); min-height: 292px; max-height: min(560px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, .28); border-radius: 14px; background: #ffffff; color: #253147; color-scheme: light; box-shadow: 0 18px 46px rgba(15, 23, 42, .20), 0 3px 10px rgba(15,23,42,.10); backdrop-filter: blur(16px); font-size: 12px; line-height: 1.55; }
+.dictfloat-panel { width: 380px; max-width: min(380px, calc(100vw - 24px)); min-height: 292px; max-height: min(560px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, .28); border-radius: 14px; background: #ffffff; color: #253147; color-scheme: light; box-shadow: 0 18px 46px rgba(15, 23, 42, .20), 0 3px 10px rgba(15,23,42,.10); font-size: 12px; line-height: 1.55; }
 .dictfloat-panel.dark { background: #161d2b; color: #e7edf7; color-scheme: dark; border-color: rgba(148,163,184,.18); }
 .dictfloat-head { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px 0 11px; cursor: move; border-bottom: 1px solid rgba(148,163,184,.18); user-select: none; }
 .dictfloat-branddot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(135deg,#f9a8d4,#ec4899); box-shadow: 0 0 0 3px rgba(236,72,153,.12); }
@@ -82,3 +82,124 @@
 .dictfloat-result-source { margin-top: 2px; color: #9aa7b8; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dark .dictfloat-result-source { color: #8ea0b7; }
 .dictfloat-add-form select { width: 100%; border: 1px solid rgba(148,163,184,.34); border-radius: 7px; padding: 6px 7px; font: inherit; font-size: 11px; color: inherit; background: transparent; outline: none; }
+
+
+/* -------------------------------------------------------------------------
+   UI hardening: DictFloat is injected into arbitrary webpages. Some sites
+   apply broad button/input rules with !important, which previously caused
+   dark buttons, native focus rings, and broken action-row layout.          
+   ------------------------------------------------------------------------- */
+#dictfloat-root .dictfloat-panel,
+#dictfloat-root .dictfloat-panel * {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif !important;
+  text-shadow: none !important;
+}
+#dictfloat-root .dictfloat-panel button,
+#dictfloat-root .dictfloat-panel input,
+#dictfloat-root .dictfloat-panel textarea,
+#dictfloat-root .dictfloat-panel select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  text-decoration: none !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+#dictfloat-root .dictfloat-panel button {
+  margin: 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  font-weight: 400 !important;
+  outline: none !important;
+}
+#dictfloat-root .dictfloat-panel button:focus-visible,
+#dictfloat-root .dictfloat-panel input:focus-visible,
+#dictfloat-root .dictfloat-panel textarea:focus-visible,
+#dictfloat-root .dictfloat-panel select:focus-visible {
+  outline: 2px solid rgba(244, 114, 182, .72) !important;
+  outline-offset: 1px !important;
+}
+#dictfloat-root .dictfloat-search input {
+  display: block !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  background: transparent !important;
+}
+#dictfloat-root .dictfloat-search input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+#dictfloat-root .dictfloat-search:focus-within {
+  border-color: #f472b6 !important;
+  box-shadow: 0 0 0 3px rgba(244,114,182,.13) !important;
+}
+#dictfloat-root .dictfloat-search-clear[hidden] { display: none !important; }
+#dictfloat-root .dictfloat-head button {
+  display: inline-grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: inherit !important;
+}
+#dictfloat-root .dictfloat-footer > button,
+#dictfloat-root .dictfloat-inline-actions > button,
+#dictfloat-root .dictfloat-entry-actions > button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+  border: 1px solid rgba(148,163,184,.36) !important;
+  border-radius: 7px !important;
+  min-height: 25px !important;
+  padding: 0 8px !important;
+  line-height: 1 !important;
+}
+#dictfloat-root .dark .dictfloat-footer > button,
+#dictfloat-root .dark .dictfloat-inline-actions > button,
+#dictfloat-root .dark .dictfloat-entry-actions > button {
+  background: #111827 !important;
+  color: #dce6f4 !important;
+  border-color: rgba(148,163,184,.34) !important;
+}
+#dictfloat-root .dictfloat-footer > button:hover,
+#dictfloat-root .dictfloat-inline-actions > button:hover,
+#dictfloat-root .dictfloat-entry-actions > button:hover {
+  background: #fff1f7 !important;
+  border-color: #f9a8d4 !important;
+  color: #9d174d !important;
+}
+#dictfloat-root .dark .dictfloat-footer > button:hover,
+#dictfloat-root .dark .dictfloat-inline-actions > button:hover,
+#dictfloat-root .dark .dictfloat-entry-actions > button:hover {
+  background: rgba(236,72,153,.12) !important;
+  color: #f9a8d4 !important;
+}
+#dictfloat-root .dictfloat-entry-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-top: 2px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+#dictfloat-root .dictfloat-entry-actions .grow { flex: 1 1 auto !important; }
+#dictfloat-root .dictfloat-panel:not(.dark),
+#dictfloat-root .dictfloat-panel:not(.dark) .dictfloat-head,
+#dictfloat-root .dictfloat-panel:not(.dark) .dictfloat-search-wrap,
+#dictfloat-root .dictfloat-panel:not(.dark) .dictfloat-tabs,
+#dictfloat-root .dictfloat-panel:not(.dark) .dictfloat-content,
+#dictfloat-root .dictfloat-panel:not(.dark) .dictfloat-footer {
+  opacity: 1 !important;
+  background-image: none !important;
+}

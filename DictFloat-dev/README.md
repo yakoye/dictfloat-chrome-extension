@@ -1,8 +1,8 @@
-# DictFloat v0.2.3
+# DictFloat v0.2.4
 
 Compact floating Chrome dictionary with local-first technical glossaries.
 
-## v0.2.3
+## v0.2.4
 - Fixed forced Light theme: the floating panel is now fully opaque white even if Chrome and the webpage are dark.
 - Added multi-glossary management in Settings: create, rename, enable/disable, or delete local glossaries.
 - Search respects enabled glossaries only.
@@ -18,7 +18,7 @@ Compact floating Chrome dictionary with local-first technical glossaries.
 MDX/MDD import remains planned for v0.3; this release establishes the multi-source data model it needs.
 
 
-## v0.2.3
+## v0.2.4
 
 - Fixed the Settings layout: font size, panel width, and their `px` units stay on one line.
 - Fixed the online lookup switch row so its label and checkbox remain aligned.

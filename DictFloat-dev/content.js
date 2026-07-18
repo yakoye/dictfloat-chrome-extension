@@ -277,7 +277,7 @@
     const row = el('div', 'dictfloat-term-row'); row.append(el('div', 'dictfloat-term', entry.term));
     const star = el('button', `dictfloat-star ${entry.favorite ? 'on' : ''}`, entry.favorite ? '★' : '☆');
     star.title = entry.favorite ? 'Remove favorite' : 'Favorite';
-    star.addEventListener('click', async () => { entry.favorite = !entry.favorite; await saveEntries(); fillEntry(box, entry); }); row.append(star); box.append(row);
+    star.addEventListener('click', async () => { entry.favorite = !entry.favorite; await saveEntries(); renderContentOnly(); }); row.append(star); box.append(row);
     if (entry.aliases?.length) box.append(el('div','dictfloat-subtitle', entry.aliases.join(' · ')));
     if (entry.chinese) box.append(el('div','dictfloat-cn', entry.chinese));
     box.append(el('div','dictfloat-definition', entry.definition || 'No definition yet.'));
@@ -285,7 +285,7 @@
     const dictionary = dictionaryFor(entry.dictionaryId);
     const meta = [dictionary?.name, entry.category, entry.source].filter(Boolean).join(' · '); if (meta) box.append(el('div','dictfloat-meta',meta));
     const divider = el('div','dictfloat-divider'); box.append(divider);
-    const actions = el('div','dictfloat-footer');
+    const actions = el('div','dictfloat-entry-actions');
     const back = el('button','', '← Results'); back.addEventListener('click', () => { state.selectedId = null; renderContentOnly(); });
     const copy = el('button','', 'Copy'); copy.addEventListener('click', async () => { await navigator.clipboard.writeText(formatCopy(entry)); copy.textContent='Copied'; setTimeout(()=>copy.textContent='Copy',900); });
     const edit = el('button','', 'Edit'); edit.addEventListener('click', () => fillEditForm(box, entry));
