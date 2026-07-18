@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.6'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.7'; }
   })();
   // Generated at package time from content.css. Keeping the stylesheet inside
   // the content script avoids a chrome-extension:// fetch from pages with
@@ -2471,36 +2471,56 @@ ${scope} :where(hr) { border-color:#34445e !important; }
   }
 
   function chooseBubblePosition(rect, size, gap, edge) {
-    const sideGap = 5;
+    const sideGap = 6;
     const verticalGap = Math.max(4, gap);
     const pointer = state.selectionPointer;
     const hasFreshPointer = pointer
       && Number.isFinite(pointer.endX) && Number.isFinite(pointer.endY)
       && (Date.now() - Number(pointer.at || 0)) < 2500;
     const pointerPoint = hasFreshPointer ? { x: pointer.endX, y: pointer.endY } : null;
+    const lineRects = Array.isArray(rect.lineRects) && rect.lineRects.length ? rect.lineRects : [rect];
+
+    const dragDx = Number(pointer?.endX) - Number(pointer?.startX);
+    const hasHorizontalDrag = Number.isFinite(dragDx) && Math.abs(dragDx) >= 8;
     const centerX = rect.left + rect.width / 2;
-    const preferredSide = pointerPoint ? (pointerPoint.x <= centerX ? 'left' : 'right') : 'right';
+    const preferredSide = hasHorizontalDrag
+      ? (dragDx < 0 ? 'left' : 'right')
+      : (pointerPoint ? (pointerPoint.x <= centerX ? 'left' : 'right') : 'right');
     const oppositeSide = preferredSide === 'left' ? 'right' : 'left';
 
-    // The selection rectangle decides the no-overlap boundary; the release
-    // point only chooses the handier side/line. For multi-line selections this
-    // keeps the marker near the line where the user released the pointer. The
-    // default candidate places the whole circle outside the selected text:
-    // right selection => lower-right outside, left selection => lower-left outside.
-    const lineRects = Array.isArray(rect.lineRects) && rect.lineRects.length ? rect.lineRects : [rect];
-    const anchorRect = pointerPoint ? nearestLineRect(lineRects, pointerPoint) : (preferredSide === 'left' ? (rect.startRect || lineRects[0]) : (rect.endRect || lineRects[lineRects.length - 1]));
-    const anchorBottom = anchorRect.bottom;
-    const alignedTop = anchorBottom - size;
-    const belowTop = anchorBottom + verticalGap;
+    const anchorRect = pointerPoint
+      ? nearestLineRect(lineRects, pointerPoint)
+      : (preferredSide === 'left' ? (rect.startRect || lineRects[0]) : (rect.endRect || lineRects[lineRects.length - 1]));
+
+    const pointerY = pointerPoint?.y;
+    const releaseMidTop = Number.isFinite(pointerY)
+      ? Math.min(anchorRect.bottom - size, Math.max(anchorRect.top, pointerY - (size / 2)))
+      : Math.max(anchorRect.top, anchorRect.bottom - size);
+    const releaseUpperTop = Number.isFinite(pointerY)
+      ? Math.min(anchorRect.top - 1, Math.max(anchorRect.top - size - verticalGap, pointerY - size + 2))
+      : (anchorRect.top - size - verticalGap);
     const sideLeft = (side, baseRect = anchorRect) => side === 'left' ? baseRect.left - size - sideGap : baseRect.right + sideGap;
-    const raw = [
-      { anchor: `below-${preferredSide}`, left: sideLeft(preferredSide), top: belowTop, preferred: true },
-      { anchor: `edge-${preferredSide}`, left: sideLeft(preferredSide), top: alignedTop },
-      { anchor: `above-${preferredSide}`, left: sideLeft(preferredSide), top: anchorRect.top - size - verticalGap },
-      { anchor: `below-${oppositeSide}`, left: sideLeft(oppositeSide), top: belowTop },
-      { anchor: `edge-${oppositeSide}`, left: sideLeft(oppositeSide), top: alignedTop },
-      { anchor: `rect-below-${preferredSide}`, left: sideLeft(preferredSide, rect), top: rect.bottom + verticalGap }
-    ];
+
+    const raw = preferredSide === 'left'
+      ? [
+          { anchor: 'above-left', left: sideLeft('left'), top: releaseUpperTop, rank: 0 },
+          { anchor: 'edge-left', left: sideLeft('left'), top: releaseMidTop, rank: 1 },
+          { anchor: 'below-left', left: sideLeft('left'), top: anchorRect.bottom + verticalGap, rank: 2 },
+          { anchor: 'above-right', left: sideLeft('right'), top: anchorRect.top - size - verticalGap, rank: 3 },
+          { anchor: 'edge-right', left: sideLeft('right'), top: releaseMidTop, rank: 4 },
+          { anchor: 'rect-above-left', left: sideLeft('left', rect), top: rect.top - size - verticalGap, rank: 5 },
+          { anchor: 'rect-below-left', left: sideLeft('left', rect), top: rect.bottom + verticalGap, rank: 6 }
+        ]
+      : [
+          { anchor: 'below-right', left: sideLeft('right'), top: anchorRect.bottom + verticalGap, rank: 0 },
+          { anchor: 'edge-right', left: sideLeft('right'), top: releaseMidTop, rank: 1 },
+          { anchor: 'above-right', left: sideLeft('right'), top: anchorRect.top - size - verticalGap, rank: 2 },
+          { anchor: 'below-left', left: sideLeft('left'), top: anchorRect.bottom + verticalGap, rank: 3 },
+          { anchor: 'edge-left', left: sideLeft('left'), top: releaseMidTop, rank: 4 },
+          { anchor: 'rect-below-right', left: sideLeft('right', rect), top: rect.bottom + verticalGap, rank: 5 },
+          { anchor: 'rect-above-right', left: sideLeft('right', rect), top: rect.top - size - verticalGap, rank: 6 }
+        ];
+
     const candidates = raw.map((item) => {
       const overflow = (item.left < edge ? 30 : 0)
         + (item.top < edge ? 30 : 0)
@@ -2510,12 +2530,24 @@ ${scope} :where(hr) { border-color:#34445e !important; }
         ...item,
         left: Math.min(window.innerWidth - size - edge, Math.max(edge, item.left)),
         top: Math.min(window.innerHeight - size - edge, Math.max(edge, item.top)),
-        overflow
+        overflow,
+        preferredSide,
+        pointerPoint,
+        anchorRect
       };
     });
+
     return candidates.sort((a, b) => {
-      const aScore = (a.overflow * 100) + bubbleCollisionScore(a, size) + bubbleAnchorPenalty(a, rect, preferredSide);
-      const bScore = (b.overflow * 100) + bubbleCollisionScore(b, size) + bubbleAnchorPenalty(b, rect, preferredSide);
+      const aScore = (a.overflow * 100)
+        + bubbleCollisionScore(a, size)
+        + bubbleAnchorPenalty(a, rect, preferredSide)
+        + bubblePointerDistancePenalty(a, size, pointerPoint)
+        + (Number(a.rank) * 5);
+      const bScore = (b.overflow * 100)
+        + bubbleCollisionScore(b, size)
+        + bubbleAnchorPenalty(b, rect, preferredSide)
+        + bubblePointerDistancePenalty(b, size, pointerPoint)
+        + (Number(b.rank) * 5);
       return aScore - bScore;
     })[0];
   }
@@ -2533,15 +2565,32 @@ ${scope} :where(hr) { border-color:#34445e !important; }
   function bubbleAnchorPenalty(candidate, rect, preferredSide = 'right') {
     let penalty = 0;
     const anchor = String(candidate?.anchor || '');
-    if (!anchor.startsWith('below') && !anchor.startsWith('rect-below')) penalty += 6;
-    if (anchor.startsWith('edge')) penalty += 4;
-    if (anchor.startsWith('above')) penalty += 14;
-    if (!anchor.endsWith(preferredSide)) penalty += 12;
+    const preferLeft = preferredSide === 'left';
+    if (!anchor.endsWith(preferredSide)) penalty += 18;
+    if (preferLeft) {
+      if (anchor.startsWith('below')) penalty += 22;
+      if (anchor.startsWith('edge')) penalty += 6;
+      if (anchor.startsWith('above')) penalty += 0;
+    } else {
+      if (anchor.startsWith('below')) penalty += 0;
+      if (anchor.startsWith('edge')) penalty += 4;
+      if (anchor.startsWith('above')) penalty += 12;
+    }
     if ((anchor.startsWith('below') || anchor.startsWith('rect-below')) && (window.innerHeight - rect.bottom) < 42) penalty += 80;
-    if (anchor.startsWith('above') && rect.top < 42) penalty += 80;
+    if ((anchor.startsWith('above') || anchor.startsWith('rect-above')) && rect.top < 42) penalty += 80;
     if (anchor.endsWith('right') && (window.innerWidth - rect.right) < 36) penalty += 10;
     if (anchor.endsWith('left') && rect.left < 36) penalty += 10;
+    if (anchor.startsWith('rect-')) penalty += 6;
     return penalty;
+  }
+
+  function bubblePointerDistancePenalty(candidate, size, point) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return 0;
+    const centerX = candidate.left + (size / 2);
+    const centerY = candidate.top + (size / 2);
+    const dx = Math.abs(centerX - point.x);
+    const dy = Math.abs(centerY - point.y);
+    return (Math.min(120, dx) * 0.08) + (Math.min(120, dy) * 0.14);
   }
 
   function bubbleCollisionScore(candidate, size) {
