@@ -30,16 +30,24 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   try {
+    // Normal pages already have content.js. This is the fastest path.
     await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_TOGGLE' });
   } catch (_) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      // A page opened before the extension was reloaded may not have the
+      // content script yet. Inject CSS first, then the script, then retry.
       await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
       await chrome.tabs.sendMessage(tab.id, { type: 'DICTFLOAT_TOGGLE' });
     } catch (error) {
+      // Chrome internal pages, the Web Store and some PDFs do not allow injection.
       console.warn('DictFloat cannot run on this page.', error);
     }
   }
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'DICTFLOAT_OPEN_OPTIONS') chrome.runtime.openOptionsPage();
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

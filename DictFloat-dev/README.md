@@ -1,4 +1,4 @@
-# DictFloat v0.1.0
+# DictFloat v0.1.2
 
 A compact floating local dictionary Chrome extension.
 
@@ -18,7 +18,7 @@ A compact floating local dictionary Chrome extension.
 
 ## Intentionally not included yet
 
-MDX / MDD parsing is **not implemented in v0.1.0**. Supporting MDX reliably requires a dedicated parser/indexer, large-file storage strategy, MDD resources/CSS handling, and a license review for any third-party implementation. The UI has a reserved MDX entry so v0.3 can add it without redesigning the workflow.
+MDX / MDD parsing is **not implemented in v0.1.2**. Supporting MDX reliably requires a dedicated parser/indexer, large-file storage strategy, MDD resources/CSS handling, and a license review for any third-party implementation. The UI has a reserved MDX entry so v0.3 can add it without redesigning the workflow.
 
 ## Install on Chrome (Developer mode)
 
@@ -33,3 +33,14 @@ MDX / MDD parsing is **not implemented in v0.1.0**. Supporting MDX reliably requ
 
 - Chrome blocks content scripts on some protected pages, including `chrome://` pages and the Chrome Web Store. DictFloat cannot display its floating window on those pages.
 - The extension uses `<all_urls>` so the selection bubble can work across normal websites. All dictionary data is stored in `chrome.storage.local` and is not sent to a server.
+
+
+## v0.1.2
+
+- Fixed the toolbar icon action: first click now opens DictFloat reliably; click again closes it; clicking while minimized restores it.
+- The open panel now refreshes when dictionary entries, history, or settings are changed in Options.
+
+## v0.1.2
+
+- A no-result search now provides a one-click **Add current term** action.
+- The Add form pre-fills the last searched term.

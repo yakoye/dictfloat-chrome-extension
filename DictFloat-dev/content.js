@@ -39,6 +39,15 @@
     }
   });
 
+  // Keep an already-open panel in sync with changes made in the Options page.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    if (changes.dictFloatEntries) state.entries = Array.isArray(changes.dictFloatEntries.newValue) ? changes.dictFloatEntries.newValue : [];
+    if (changes.dictFloatHistory) state.history = Array.isArray(changes.dictFloatHistory.newValue) ? changes.dictFloatHistory.newValue : [];
+    if (changes.dictFloatSettings) state.settings = { ...state.settings, ...(changes.dictFloatSettings.newValue || {}) };
+    if (state.root?.isConnected && (changes.dictFloatEntries || changes.dictFloatSettings || changes.dictFloatHistory)) render();
+  });
+
   function ensureRoot() {
     if (state.root?.isConnected) return;
     state.root = document.createElement('div');
@@ -47,12 +56,19 @@
     render();
   }
 
+  // The action icon calls this. Do not call ensureRoot before deciding whether
+  // a panel already existed: ensureRoot() renders a panel immediately.
   function toggle() {
-    ensureRoot();
-    if (state.minimized) restore();
-    else if (state.panel?.style.display === 'none') open();
-    else if (state.panel) close();
-    else open();
+    if (!state.root?.isConnected) {
+      ensureRoot();
+      open();
+      return;
+    }
+    if (state.minimized) {
+      restore();
+      return;
+    }
+    close();
   }
 
   function open() {
@@ -161,6 +177,9 @@
     if (!results.length) {
       const empty = el('div', 'dictfloat-empty');
       empty.innerHTML = `<strong>No local result</strong><br><span>Try another spelling, alias, tag, or add it to your glossary.</span>`;
+      const addCurrent = el('button', 'dictfloat-add-current', `+ Add “${truncate(state.query, 34)}”`);
+      addCurrent.addEventListener('click', () => { state.view = 'add'; renderContentOnly(); updateTabs(); });
+      empty.append(document.createElement('br'), addCurrent);
       box.append(empty); return;
     }
     results.forEach(entry => box.append(resultItem(entry)));
@@ -193,7 +212,8 @@
   }
 
   function fillAddForm(box, editing) {
-    const entry = editing || { term:'', aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary' };
+    // Preserve the just-looked-up text so building a personal glossary is one step.
+    const entry = editing || { term: state.query.trim(), aliases:[], chinese:'', definition:'', tags:[], category:'', source:'My glossary' };
     box.append(el('div','dictfloat-meta', editing ? 'Edit local entry' : 'Add to My Glossary'));
     const form = el('form','dictfloat-add-form');
     const fields = [
@@ -245,6 +265,7 @@
   function normalize(s) { return String(s||'').toLowerCase().replace(/[\s_\-./]+/g,' ').trim(); }
   function list(value) { return String(value||'').split(',').map(x=>x.trim()).filter(Boolean); }
   function formatCopy(e) { return `${e.term}${e.chinese ? `\n${e.chinese}` : ''}\n${e.definition}${e.aliases?.length?`\nAliases: ${e.aliases.join(', ')}`:''}`; }
+  function truncate(value, max) { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; }
 
   function handleSelection(event) {
     if (event.target.closest?.('#dictfloat-root')) return;
