@@ -50,6 +50,6 @@ Clicking the DictFloat toolbar icon also checks the content-script version and r
 The selection lookup control is intentionally created only after mouse/touch selection ends. It anchors above the selection’s upper-right edge, so it cannot sit in the normal left-to-right drag path.
 
 
-## v0.5.8 stable development ID
+## v0.5.9 stable development ID
 
 This first key-bearing development build has a new ID relative to previous unpacked versions. Export a backup from the old build, load this source folder at a fixed path, then import the backup. Future builds using this key retain the same ID.

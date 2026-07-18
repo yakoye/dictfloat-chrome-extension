@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.8'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.9'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -907,11 +907,14 @@
     return item;
   }
 
-  function createSourceSection({ key, term, detail = '', badge = '', tone = '' }) {
+  function createSourceSection({ key, term, detail = '', badge = '', tone = '', onSave = null }) {
     const collapsed = state.collapsedSources.has(key);
     const section = el('section', `dictfloat-source-section${collapsed ? ' collapsed' : ''}${tone ? ` ${tone}` : ''}`);
-    const header = el('button', 'dictfloat-source-header');
-    header.type = 'button';
+    // The source header is deliberately a single row rather than nested buttons:
+    // this lets the compact save icon sit immediately before the dictionary name.
+    const header = el('div', 'dictfloat-source-header');
+    header.tabIndex = 0;
+    header.setAttribute('role', 'button');
     header.setAttribute('aria-expanded', String(!collapsed));
     header.title = collapsed ? 'Expand dictionary result' : 'Collapse dictionary result';
 
@@ -920,8 +923,33 @@
     if (detail) left.append(el('span', 'dictfloat-source-detail', detail));
     const badgeNode = el('span', 'dictfloat-source-badge', badge);
     const chevron = el('span', 'dictfloat-source-chevron', collapsed ? '›' : '⌄');
-    header.append(left, badgeNode, chevron);
-    header.addEventListener('click', guardedAsync(() => toggleSourceCollapse(key)));
+    header.append(left);
+
+    if (typeof onSave === 'function') {
+      const save = el('button', 'dictfloat-source-save', '＋');
+      save.type = 'button';
+      save.title = 'Save to my glossary';
+      save.setAttribute('aria-label', 'Save to my glossary');
+      save.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onSave();
+      });
+      header.append(save);
+    }
+
+    header.append(badgeNode, chevron);
+    const toggle = () => { void toggleSourceCollapse(key).catch(handleAsyncError); };
+    header.addEventListener('click', (event) => {
+      if (event.target.closest('.dictfloat-source-save')) return;
+      toggle();
+    });
+    header.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggle();
+      }
+    });
 
     const body = el('div', 'dictfloat-source-body');
     body.hidden = collapsed;
@@ -1049,13 +1077,10 @@
     back.type = 'button';
     back.title = 'Return to results';
     back.addEventListener('click', returnToPreviousView);
-    const copy = el('button', '', 'Copy');
-    copy.type = 'button';
-    copy.addEventListener('click', () => copyText(formatCopy(entry), copy));
     const edit = el('button', '', 'Edit');
     edit.type = 'button';
     edit.addEventListener('click', () => openEdit(entry));
-    actions.append(back, el('span', 'grow'), copy, edit);
+    actions.append(back, el('span', 'grow'), edit);
     box.append(actions);
   }
 
@@ -1077,7 +1102,14 @@
       term: data.term || state.query,
       detail: formatWudaoPhonetic(data.phonetic || ''),
       badge: 'Wudao · Offline',
-      tone: 'wudao'
+      tone: 'wudao',
+      onSave: lookup.status === 'done' && lookup.data ? () => {
+        state.draftEntry = wudaoToDraft(data);
+        state.editingId = null;
+        state.selectedId = null;
+        state.view = 'add';
+        renderContentOnly();
+      } : null
     });
 
     if (lookup.status === 'loading') section.body.append(el('div', 'dictfloat-wudao-status', 'Searching Wudao offline…'));
@@ -1097,21 +1129,6 @@
         section.body.append(examples);
       }
       if (!data.definitions?.length) section.body.append(el('div', 'dictfloat-wudao-status', 'No offline definition was returned for this query.'));
-      const actions = el('div', 'dictfloat-inline-actions');
-      const save = el('button', '', '+ Save');
-      save.type = 'button';
-      save.addEventListener('click', () => {
-        state.draftEntry = wudaoToDraft(data);
-        state.editingId = null;
-        state.selectedId = null;
-        state.view = 'add';
-        renderContentOnly();
-      });
-      const copy = el('button', '', 'Copy');
-      copy.type = 'button';
-      copy.addEventListener('click', () => copyText(formatWudaoCopy(data), copy));
-      actions.append(save, copy);
-      section.body.append(actions);
     }
     box.append(section.node);
     return true;
@@ -1127,7 +1144,14 @@
       term: data.term || state.query,
       detail: data.phonetic || '',
       badge: source.name,
-      tone: 'mdx'
+      tone: 'mdx',
+      onSave: lookup.status === 'done' && data.definitions?.length ? () => {
+        state.draftEntry = mdictToDraft(data, source.name);
+        state.editingId = null;
+        state.selectedId = null;
+        state.view = 'add';
+        renderContentOnly();
+      } : null
     });
     if (lookup.status === 'loading') {
       section.body.append(el('div', 'dictfloat-online-status', 'Searching linked MDX…'));
@@ -1161,21 +1185,6 @@
         definition.append(safeMdictHtml(item.definition, darkReadable));
       });
       section.body.append(definition);
-      const actions = el('div', 'dictfloat-inline-actions');
-      const save = el('button', '', '+ Save');
-      save.type = 'button';
-      save.addEventListener('click', () => {
-        state.draftEntry = mdictToDraft(data, source.name);
-        state.editingId = null;
-        state.selectedId = null;
-        state.view = 'add';
-        renderContentOnly();
-      });
-      const copy = el('button', '', 'Copy');
-      copy.type = 'button';
-      copy.addEventListener('click', () => copyText(formatMdictCopy(data, source.name), copy));
-      actions.append(save, copy);
-      section.body.append(actions);
     }
     box.append(section.node);
     return true;
@@ -1439,10 +1448,6 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     return String(doc.body.textContent || '').replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim();
   }
 
-  function formatMdictCopy(data, sourceName) {
-    return [data.term || state.query, sourceName, ...(data.definitions || []).map((item) => mdictText(item.definition || ''))].filter(Boolean).join('\n');
-  }
-
   function appendOnlineSection(box, source = { key: 'online', name: 'Online' }) {
     const online = state.online;
     if (!state.query.trim() || !state.settings.onlineLookup || online.query !== state.query.trim()) return false;
@@ -1452,7 +1457,13 @@ ${scope} :where(hr) { border-color:#34445e !important; }
       term: data.term || state.query,
       detail: data.phonetic || '',
       badge: 'Online',
-      tone: 'online'
+      tone: 'online',
+      onSave: online.status === 'done' && online.data ? () => {
+        state.draftEntry = onlineToDraft(data);
+        state.editingId = null;
+        state.view = 'add';
+        renderContentOnly();
+      } : null
     });
 
     if (online.status === 'loading') section.body.append(el('div', 'dictfloat-online-status', 'Searching online…'));
@@ -1473,20 +1484,6 @@ ${scope} :where(hr) { border-color:#34445e !important; }
         section.body.append(definitions);
       }
       if (!data.translation && !data.definitions?.length) section.body.append(el('div', 'dictfloat-online-status', 'No online definition was returned for this query.'));
-      const actions = el('div', 'dictfloat-inline-actions');
-      const save = el('button', '', '+ Save');
-      save.type = 'button';
-      save.addEventListener('click', () => {
-        state.draftEntry = onlineToDraft(data);
-        state.editingId = null;
-        state.view = 'add';
-        renderContentOnly();
-      });
-      const copy = el('button', '', 'Copy');
-      copy.type = 'button';
-      copy.addEventListener('click', () => copyText(formatOnlineCopy(data), copy));
-      actions.append(save, copy);
-      section.body.append(actions);
     }
     box.append(section.node);
     return true;
@@ -1941,18 +1938,6 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     return writableDictionaries().find((dictionary) => dictionary.enabled !== false)?.id || writableDictionaries()[0]?.id || 'my-glossary';
   }
 
-  async function copyText(text, button) {
-    try {
-      await navigator.clipboard.writeText(text);
-      const previous = button.textContent;
-      button.textContent = 'Copied';
-      setTimeout(() => { button.textContent = previous; }, 900);
-    } catch (_) {
-      button.textContent = 'Copy failed';
-      setTimeout(() => { button.textContent = 'Copy'; }, 900);
-    }
-  }
-
   function cloneForGlossary(entry) {
     return {
       ...normalizeEntry(entry),
@@ -1976,10 +1961,6 @@ ${scope} :where(hr) { border-color:#34445e !important; }
       source: data.provider || 'Wudao offline dictionary'
     };
   }
-  function formatWudaoCopy(data) {
-    return [data.term || state.query, data.phonetic || '', ...(data.definitions || []), ...(data.examples || [])].filter(Boolean).join('\n');
-  }
-
   function onlineToDraft(data) {
     const definition = (data.definitions || []).slice(0, 3).map((item) => item.definition).filter(Boolean).join('\n') || data.translation || '';
     return {
@@ -1994,20 +1975,6 @@ ${scope} :where(hr) { border-color:#34445e !important; }
       source: data.providers?.join(' + ') || 'Online lookup'
     };
   }
-  function formatCopy(entry) {
-    return [
-      entry.term,
-      entry.aliases?.length ? entry.aliases.join(', ') : '',
-      entry.chinese || '',
-      entry.definition || '',
-      entry.related?.length ? entry.related.join(', ') : ''
-    ].filter(Boolean).join('\n');
-  }
-  function formatOnlineCopy(data) {
-    const definitions = (data.definitions || []).map((item) => `${item.partOfSpeech ? `[${item.partOfSpeech}] ` : ''}${item.definition}`).join('\n');
-    return `${data.term || state.query}${data.phonetic ? `\n${data.phonetic}` : ''}${data.translation ? `\n${data.translation}` : ''}${definitions ? `\n${definitions}` : ''}`;
-  }
-
   // Selection handling deliberately has several entry points. Some reader-mode
   // extensions intercept mouseup at document level, while others render the
   // reading copy in an open ShadowRoot or an about:blank frame. Window-capture

@@ -532,10 +532,40 @@ button { -webkit-appearance: none; appearance: none; }
   color: inherit;
   cursor: pointer;
   text-align: left;
+  outline: 0;
 }
 .dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
+.dictfloat-source-header:focus-visible { box-shadow:0 0 0 2px var(--df-accent-ring); border-radius:5px; }
 .dark .dictfloat-source-header { background:transparent; }
-.dark .dictfloat-source-header:hover { background:transparent; color:#f59ac5; }
+.dark .dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
+.dictfloat-source-save {
+  flex:0 0 19px;
+  width:19px;
+  height:19px;
+  min-width:19px;
+  min-height:19px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin:0 1px 0 0;
+  padding:0;
+  border:1px solid color-mix(in srgb, var(--df-accent) 42%, #cbd5e1);
+  border-radius:5px;
+  background:var(--df-accent-soft);
+  color:var(--df-accent-strong);
+  cursor:pointer;
+  font-family:Arial, sans-serif;
+  font-size:16px;
+  font-weight:700;
+  line-height:1;
+}
+.dictfloat-source-save:hover { border-color:var(--df-accent); background:color-mix(in srgb, var(--df-accent) 18%, white); color:var(--df-accent-strong); }
+.dark .dictfloat-source-save {
+  border-color:color-mix(in srgb, var(--df-accent) 62%, #35465f);
+  background:color-mix(in srgb, var(--df-accent) 18%, #172338);
+  color:color-mix(in srgb, var(--df-accent) 55%, white);
+}
+.dark .dictfloat-source-save:hover { background:color-mix(in srgb, var(--df-accent) 30%, #172338); color:#fff; }
 .dictfloat-source-left {
   display: flex;
   align-items: baseline;
@@ -621,7 +651,6 @@ button { -webkit-appearance: none; appearance: none; }
 }
 .dark .dictfloat-glossary-preview:hover,
 .dark .dictfloat-glossary-preview:focus-visible { background:#202d41; }
-.dictfloat-source-section .dictfloat-inline-actions { justify-content:flex-end; padding:7px 4px 3px; }
 
 
 /* Imported MDX text stays inside the DictFloat shadow root. Safe original CSS
