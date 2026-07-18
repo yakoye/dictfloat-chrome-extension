@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.6.4</div>
+      <div class="version">v0.6.6</div>
     </header>
 
     <section class="card">
@@ -45,10 +45,57 @@
       <p class="hint">When the query contains two or more English words, DictFloat can run the enabled providers directly after you press Enter or click the selection marker.</p>
       <div class="provider-list">
         <label class="toggle-row provider-row"><span><strong>1. Chrome Built-in Translator</strong><small>Local browser translator when available. No external tab is opened.</small></span><input id="translateChrome" type="checkbox"></label>
-        <label class="toggle-row provider-row"><span><strong>2. Youdao Web Bridge</strong><small>Uses a user-opened or background Youdao translation page.</small></span><input id="translateYoudaoBridge" type="checkbox"></label>
-        <label class="toggle-row provider-row"><span><strong>3. Baidu Web Bridge</strong><small>Uses a user-opened or background Baidu translation page.</small></span><input id="translateBaiduBridge" type="checkbox"></label>
-        <label class="toggle-row provider-row"><span><strong>4. Doubao Web Bridge</strong><small>Uses a user-opened or background Doubao chat page and a short translation prompt.</small></span><input id="translateDoubaoBridge" type="checkbox"></label>
+
+        <details class="translation-provider-details">
+          <summary><label class="toggle-row provider-row"><span><strong>2. Microsoft Translator</strong><small>Azure Translator cloud API. Requires your own key and region.</small></span><input id="translateMicrosoft" type="checkbox"></label></summary>
+          <div class="translation-config-grid">
+            <label class="field"><span>API Key</span><input id="microsoftApiKey" data-translation-secret="microsoft" type="password" autocomplete="off" placeholder="Azure Translator key"></label>
+            <label class="field"><span>Region</span><input id="microsoftRegion" data-translation-config="microsoft" type="text" placeholder="eastasia / japaneast / global"></label>
+            <label class="field full"><span>Endpoint</span><input id="microsoftEndpoint" data-translation-config="microsoft" type="url" placeholder="https://api.cognitive.microsofttranslator.com"></label>
+          </div>
+        </details>
+
+        <details class="translation-provider-details">
+          <summary><label class="toggle-row provider-row"><span><strong>3. Hunyuan Translation</strong><small>OpenAI-compatible translation model. Configure Base URL, API Key, and Model.</small></span><input id="translateHunyuan" type="checkbox"></label></summary>
+          <div class="translation-config-grid">
+            <label class="field full"><span>API URL / Base URL</span><input id="hunyuanApiUrl" data-translation-config="hunyuan" type="url" placeholder="https://api.hunyuan.cloud.tencent.com/v1"></label>
+            <label class="field"><span>API Key</span><input id="hunyuanApiKey" data-translation-secret="hunyuan" type="password" autocomplete="off" placeholder="API Key"></label>
+            <label class="field"><span>Model</span><input id="hunyuanModel" data-translation-config="hunyuan" type="text" placeholder="model name"></label>
+          </div>
+        </details>
+
+        <details class="translation-provider-details">
+          <summary><label class="toggle-row provider-row"><span><strong>4. SiliconFlow Translation</strong><small>OpenAI-compatible translation source. Free models can be configured here.</small></span><input id="translateSiliconFlow" type="checkbox"></label></summary>
+          <div class="translation-config-grid">
+            <label class="field full"><span>API URL / Base URL</span><input id="siliconflowApiUrl" data-translation-config="siliconflow" type="url" placeholder="https://api.siliconflow.cn/v1"></label>
+            <label class="field"><span>API Key</span><input id="siliconflowApiKey" data-translation-secret="siliconflow" type="password" autocomplete="off" placeholder="API Key"></label>
+            <label class="field"><span>Model</span><input id="siliconflowModel" data-translation-config="siliconflow" type="text" placeholder="Qwen/Qwen2.5-7B-Instruct"></label>
+          </div>
+        </details>
+
+        <details class="translation-provider-details">
+          <summary><label class="toggle-row provider-row"><span><strong>5. Zhipu GLM Translation</strong><small>OpenAI-compatible GLM translation. GLM-4-Flash can be configured here.</small></span><input id="translateZhipu" type="checkbox"></label></summary>
+          <div class="translation-config-grid">
+            <label class="field full"><span>API URL / Base URL</span><input id="zhipuApiUrl" data-translation-config="zhipu" type="url" placeholder="https://open.bigmodel.cn/api/paas/v4"></label>
+            <label class="field"><span>API Key</span><input id="zhipuApiKey" data-translation-secret="zhipu" type="password" autocomplete="off" placeholder="API Key"></label>
+            <label class="field"><span>Model</span><input id="zhipuModel" data-translation-config="zhipu" type="text" placeholder="glm-4-flash"></label>
+          </div>
+        </details>
+
+        <details class="translation-provider-details">
+          <summary><label class="toggle-row provider-row"><span><strong>6. babel-lite</strong><small>Reserved configurable translation source. Fill public endpoint details if available.</small></span><input id="translateBabelLite" type="checkbox"></label></summary>
+          <div class="translation-config-grid">
+            <label class="field full"><span>API URL / Base URL</span><input id="babelliteApiUrl" data-translation-config="babellite" type="url" placeholder="https://..."></label>
+            <label class="field"><span>API Key</span><input id="babelliteApiKey" data-translation-secret="babellite" type="password" autocomplete="off" placeholder="API Key"></label>
+            <label class="field"><span>Model</span><input id="babelliteModel" data-translation-config="babellite" type="text" placeholder="optional"></label>
+          </div>
+        </details>
+
+        <label class="toggle-row provider-row"><span><strong>7. Youdao Web Bridge</strong><small>Uses a user-opened or background Youdao translation page.</small></span><input id="translateYoudaoBridge" type="checkbox"></label>
+        <label class="toggle-row provider-row"><span><strong>8. Baidu Web Bridge</strong><small>Uses a user-opened or background Baidu translation page.</small></span><input id="translateBaiduBridge" type="checkbox"></label>
+        <label class="toggle-row provider-row"><span><strong>9. Doubao Web Bridge</strong><small>Uses a user-opened or background Doubao chat page and a short translation prompt.</small></span><input id="translateDoubaoBridge" type="checkbox"></label>
       </div>
+      <p class="hint">Sentence translation providers only return Chinese translation. They do not expose prompt settings. API keys are stored separately and are not included in normal backup export.</p>
       <p class="hint">Web bridge providers are experimental. They reuse normal translation pages and may fail if the page is not logged in, has a captcha, or changes its DOM.</p>
     </section>
 

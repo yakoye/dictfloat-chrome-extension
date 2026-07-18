@@ -1,5 +1,26 @@
 const $ = (id) => document.getElementById(id);
-const defaultTranslationProviders = () => ({ chrome: true, youdao: false, baidu: false, doubao: false, customAi: false });
+const defaultTranslationProviders = () => ({
+  chrome: true,
+  microsoft: false,
+  hunyuan: false,
+  siliconflow: false,
+  zhipu: false,
+  babellite: false,
+  youdao: false,
+  baidu: false,
+  doubao: false,
+  customAi: false
+});
+const SENTENCE_TRANSLATION_API_KEYS = ['microsoft', 'hunyuan', 'siliconflow', 'zhipu', 'babellite'];
+function defaultSentenceTranslationConfigs() {
+  return {
+    microsoft: { endpoint: 'https://api.cognitive.microsofttranslator.com', region: '', from: 'en', to: 'zh-Hans' },
+    hunyuan: { apiUrl: 'https://api.hunyuan.cloud.tencent.com/v1', model: '', maxTextLength: 8000, maxOutputTokens: 1600 },
+    siliconflow: { apiUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', maxTextLength: 8000, maxOutputTokens: 1600 },
+    zhipu: { apiUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', maxTextLength: 8000, maxOutputTokens: 1600 },
+    babellite: { apiUrl: '', model: '', maxTextLength: 8000, maxOutputTokens: 1600 }
+  };
+}
 const AI_PROVIDER_LEGACY_ID = 'ai_legacy_custom';
 const AI_PROVIDER_DEFAULT_DEEPSEEK_ID = 'ai_default_deepseek';
 const AI_PROVIDER_PRESETS = {
@@ -11,29 +32,33 @@ const AI_PROVIDER_PRESETS = {
 
 1. 只处理英文内容。
 2. 如果用户输入不包含英文，统一只回复：请输入英文句子，我为你进行完整解析。
-3. 自动清理 PDF、网页、文档复制造成的多余换行、断行、多余空格。
-4. 遇到英文缩写，如 You've、I'm、don't、isn't，先在【规整后原句】中还原为完整形式。
-5. 输出必须严格使用下面五个栏目，不能增加栏目，不能减少栏目。
+3. 后台会自动清理 PDF、网页、文档复制产生的多余换行、断行和多余空格，你不需要输出规整后的原句。
+4. 遇到英文缩写，如 You've、I'm、don't、isn't，解析时按完整形式理解，例如 You've = You have。
+5. 输出必须严格使用下面四个栏目，不能增加栏目，不能减少栏目。
 6. 禁止输出开场白，例如“好的”“下面是”“我将为你解析”。
 7. 禁止输出结尾总结，例如“最终输出”“总结如下”。
 8. 禁止使用“第一步、第二步、第三步”这类流程标题。
-9. 语法解析必须单独分行，明确句子类型、时态、主语、谓语、宾语、定语、状语、补语等。
-10. 每个句子成分都要附带中文直译。
-11. 生词只选择值得讲的词：高阶词、书面词、专业词、易混词、熟词僻义、固定搭配、句中有特殊含义的常用词。
-12. 普通基础词如果没有特殊用法，可以忽略。
-13. 生词格式统一为：单词 /音标/ 词性. 通用释义；本句含义；常用搭配。
-14. 输出要紧凑，不要废话，但不能漏掉核心语法和关键词义。
+9. 生词详解放在语法结构解析前面。
+10. 生词只选择值得讲的词：高阶词、书面词、专业词、易混词、熟词僻义、固定搭配、句中有特殊含义的常用词。
+11. 普通基础词如果没有特殊用法，可以忽略。
+12. 生词格式统一为：单词 /音标/ 词性. 通用释义；本句含义；常用搭配。
+13. 语法解析必须单独分行，明确句子类型、时态、主语、谓语、宾语、定语、状语、补语等。
+14. 每个重要句子成分都要用括号附带中文直译。
+15. 句子详解要说明重点动词、核心短语、特殊含义和句子真实表达。
+16. 输出要紧凑，不要废话，但不能漏掉核心词义和核心语法。
 
 固定输出格式如下：
-
-【规整后原句】
-...
 
 【中文句式翻译】
 ...
 
 【中文意思翻译】
 ...
+
+【生词详解】
+1. ...
+2. ...
+3. ...
 
 【语法结构解析】
 - 句子类型：...
@@ -45,12 +70,7 @@ const AI_PROVIDER_PRESETS = {
 - 状语：...
 - 补语：...
 - 核心结构：...
-- 语法说明：...
-
-【生词详解】
-1. ...
-2. ...
-3. ...`,
+- 句子详解：...`,
     userPromptTemplate: '请按照固定格式解析下面英文内容：\n\n{{text}}'
   },
   quick_translate: {
@@ -86,7 +106,7 @@ function defaultAiProviders() {
     ...defaultCustomAiProvider()
   }];
 }
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders(), customAiProvider: defaultCustomAiProvider(), aiProviders: defaultAiProviders() };
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders(), sentenceTranslationConfigs: defaultSentenceTranslationConfigs(), customAiProvider: defaultCustomAiProvider(), aiProviders: defaultAiProviders() };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -112,6 +132,8 @@ let draggedSourceKey = '';
 let recoverySnapshots = [];
 let aiProviders = [];
 let aiSecrets = {};
+let translationSecrets = {};
+let expandedAiProviderId = '';
 
 void init();
 
@@ -128,11 +150,13 @@ async function init() {
     'dictFloatCollapsedSources',
     'dictFloatCustomAiSecret',
     'dictFloatAiSecrets',
+    'dictFloatTranslationSecrets',
     RECOVERY_SNAPSHOT_KEY
   ]);
   const settings = normalizeSettings(data.dictFloatSettings);
   aiProviders = normalizeAiProviders(settings.aiProviders, data.dictFloatSettings);
   aiSecrets = normalizeAiSecrets(data.dictFloatAiSecrets, data.dictFloatCustomAiSecret, aiProviders);
+  translationSecrets = normalizeTranslationSecrets(data.dictFloatTranslationSecrets);
   applyAccent(settings.accent);
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
@@ -150,14 +174,21 @@ async function init() {
     else element.value = settings[key];
   }
   applyTranslationProviderSettings(settings.translationProviders);
+  applySentenceTranslationConfigSettings(settings.sentenceTranslationConfigs, translationSecrets);
   renderAiProviders();
 
-  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent',
+    'translateChrome', 'translateMicrosoft', 'translateHunyuan', 'translateSiliconFlow', 'translateZhipu', 'translateBabelLite', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge'
+  ].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  document.querySelectorAll('[data-translation-config], [data-translation-secret]').forEach((node) => {
+    node.addEventListener('change', async () => { await saveSettings(); });
+    node.addEventListener('input', debounce(async () => { await saveSettings({ quiet: true }); }, 450));
+  });
   $('aiProviderList')?.addEventListener('change', handleAiProviderChange);
   $('aiProviderList')?.addEventListener('input', handleAiProviderInput);
   $('aiProviderList')?.addEventListener('click', handleAiProviderAction);
-  $('addAiProvider')?.addEventListener('click', async () => { aiProviders.push(createAiProviderFromTemplate('blank')); renderAiProviders(); await saveSettings(); });
-  $('addDeepSeekProvider')?.addEventListener('click', async () => { aiProviders.push(createAiProviderFromTemplate('deepseek')); renderAiProviders(); await saveSettings(); });
+  $('addAiProvider')?.addEventListener('click', async () => { const provider = createAiProviderFromTemplate('blank'); aiProviders.push(provider); expandedAiProviderId = provider.id; renderAiProviders(); await saveSettings(); });
+  $('addDeepSeekProvider')?.addEventListener('click', async () => { const provider = createAiProviderFromTemplate('deepseek'); aiProviders.push(provider); expandedAiProviderId = provider.id; renderAiProviders(); await saveSettings(); });
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('newGlossaryAction').addEventListener('click', async () => { closeAddSourceMenu(); await addDictionary(); });
   $('connectMdictFolder').addEventListener('click', async () => { closeAddSourceMenu(); await connectMdictFolder(); });
@@ -192,8 +223,18 @@ async function init() {
     dictFloatWudaoSource: wudaoSource,
     dictFloatSourceOrder: sourceOrder,
     dictFloatAiSecrets: aiSecrets,
+    dictFloatTranslationSecrets: translationSecrets,
     dictFloatSettings: { ...settings, aiProviders }
   });
+}
+
+
+function debounce(fn, wait = 300) {
+  let timer = 0;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { void fn(...args); }, wait);
+  };
 }
 
 function toggleAddSourceMenu() {
@@ -221,11 +262,56 @@ function normalizeTranslationProviders(input) {
   const value = input && typeof input === 'object' ? input : {};
   return {
     chrome: value.chrome !== false,
+    microsoft: value.microsoft === true,
+    hunyuan: value.hunyuan === true,
+    siliconflow: value.siliconflow === true,
+    zhipu: value.zhipu === true,
+    babellite: value.babellite === true,
     youdao: value.youdao === true,
     baidu: value.baidu === true,
     doubao: value.doubao === true,
     customAi: value.customAi === true
   };
+}
+
+function normalizeSentenceTranslationConfigs(input) {
+  const raw = input && typeof input === 'object' ? input : {};
+  const defaults = defaultSentenceTranslationConfigs();
+  const cleanProvider = (key) => {
+    const value = raw[key] && typeof raw[key] === 'object' ? raw[key] : {};
+    const fallback = defaults[key] || {};
+    if (key === 'microsoft') {
+      return {
+        endpoint: String(value.endpoint || fallback.endpoint || '').trim(),
+        region: String(value.region || fallback.region || '').trim(),
+        from: String(value.from || fallback.from || 'en').trim(),
+        to: String(value.to || fallback.to || 'zh-Hans').trim()
+      };
+    }
+    return {
+      apiUrl: String(value.apiUrl || fallback.apiUrl || '').trim(),
+      model: String(value.model || fallback.model || '').trim(),
+      maxTextLength: clamp(Number(value.maxTextLength), 100, 30000, fallback.maxTextLength || 8000),
+      maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, fallback.maxOutputTokens || 1600)
+    };
+  };
+  return {
+    microsoft: cleanProvider('microsoft'),
+    hunyuan: cleanProvider('hunyuan'),
+    siliconflow: cleanProvider('siliconflow'),
+    zhipu: cleanProvider('zhipu'),
+    babellite: cleanProvider('babellite')
+  };
+}
+
+function normalizeTranslationSecrets(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const result = {};
+  SENTENCE_TRANSLATION_API_KEYS.forEach((key) => {
+    const item = source[key] && typeof source[key] === 'object' ? source[key] : {};
+    result[key] = { apiKey: String(item.apiKey || '').trim() };
+  });
+  return result;
 }
 
 function normalizeAiProvider(input, index = 0) {
@@ -335,6 +421,7 @@ function normalizeSettings(input) {
     ...defaults,
     ...raw,
     translationProviders: normalizeTranslationProviders(raw.translationProviders || defaults.translationProviders),
+    sentenceTranslationConfigs: normalizeSentenceTranslationConfigs(raw.sentenceTranslationConfigs || defaults.sentenceTranslationConfigs),
     customAiProvider: normalizeAiProvider(raw.customAiProvider || defaults.customAiProvider),
     aiProviders: ai
   };
@@ -342,18 +429,72 @@ function normalizeSettings(input) {
 
 function applyTranslationProviderSettings(input) {
   const providers = normalizeTranslationProviders(input);
-  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao' };
+  const map = {
+    translateChrome: 'chrome',
+    translateMicrosoft: 'microsoft',
+    translateHunyuan: 'hunyuan',
+    translateSiliconFlow: 'siliconflow',
+    translateZhipu: 'zhipu',
+    translateBabelLite: 'babellite',
+    translateYoudaoBridge: 'youdao',
+    translateBaiduBridge: 'baidu',
+    translateDoubaoBridge: 'doubao'
+  };
   Object.entries(map).forEach(([id, key]) => { const node = $(id); if (node) node.checked = !!providers[key]; });
 }
 
 function readTranslationProviderSettings() {
   return {
     chrome: $('translateChrome')?.checked !== false,
+    microsoft: $('translateMicrosoft')?.checked === true,
+    hunyuan: $('translateHunyuan')?.checked === true,
+    siliconflow: $('translateSiliconFlow')?.checked === true,
+    zhipu: $('translateZhipu')?.checked === true,
+    babellite: $('translateBabelLite')?.checked === true,
     youdao: $('translateYoudaoBridge')?.checked === true,
     baidu: $('translateBaiduBridge')?.checked === true,
     doubao: $('translateDoubaoBridge')?.checked === true,
     customAi: false
   };
+}
+
+function applySentenceTranslationConfigSettings(configInput, secretInput) {
+  const configs = normalizeSentenceTranslationConfigs(configInput);
+  const secrets = normalizeTranslationSecrets(secretInput);
+  const setValue = (id, value) => { const node = $(id); if (node) node.value = value ?? ''; };
+  setValue('microsoftApiKey', secrets.microsoft.apiKey);
+  setValue('microsoftRegion', configs.microsoft.region);
+  setValue('microsoftEndpoint', configs.microsoft.endpoint);
+  setValue('hunyuanApiKey', secrets.hunyuan.apiKey);
+  setValue('hunyuanApiUrl', configs.hunyuan.apiUrl);
+  setValue('hunyuanModel', configs.hunyuan.model);
+  setValue('siliconflowApiKey', secrets.siliconflow.apiKey);
+  setValue('siliconflowApiUrl', configs.siliconflow.apiUrl);
+  setValue('siliconflowModel', configs.siliconflow.model);
+  setValue('zhipuApiKey', secrets.zhipu.apiKey);
+  setValue('zhipuApiUrl', configs.zhipu.apiUrl);
+  setValue('zhipuModel', configs.zhipu.model);
+  setValue('babelliteApiKey', secrets.babellite.apiKey);
+  setValue('babelliteApiUrl', configs.babellite.apiUrl);
+  setValue('babelliteModel', configs.babellite.model);
+}
+
+function readSentenceTranslationConfigSettings() {
+  const read = (id) => String($(id)?.value || '').trim();
+  translationSecrets = normalizeTranslationSecrets({
+    microsoft: { apiKey: read('microsoftApiKey') },
+    hunyuan: { apiKey: read('hunyuanApiKey') },
+    siliconflow: { apiKey: read('siliconflowApiKey') },
+    zhipu: { apiKey: read('zhipuApiKey') },
+    babellite: { apiKey: read('babelliteApiKey') }
+  });
+  return normalizeSentenceTranslationConfigs({
+    microsoft: { endpoint: read('microsoftEndpoint'), region: read('microsoftRegion'), from: 'en', to: 'zh-Hans' },
+    hunyuan: { apiUrl: read('hunyuanApiUrl'), model: read('hunyuanModel') },
+    siliconflow: { apiUrl: read('siliconflowApiUrl'), model: read('siliconflowModel') },
+    zhipu: { apiUrl: read('zhipuApiUrl'), model: read('zhipuModel') },
+    babellite: { apiUrl: read('babelliteApiUrl'), model: read('babelliteModel') }
+  });
 }
 
 function renderAiProviders() {
@@ -369,7 +510,7 @@ function renderAiProviders() {
 
 function createAiProviderCard(provider, index) {
   const item = document.createElement('article');
-  item.className = 'ai-provider-item';
+  item.className = provider.id === expandedAiProviderId ? 'ai-provider-item' : 'ai-provider-item collapsed';
   item.dataset.providerId = provider.id;
 
   const head = document.createElement('div');
@@ -392,6 +533,7 @@ function createAiProviderCard(provider, index) {
   const controls = document.createElement('div');
   controls.className = 'ai-provider-controls';
   controls.append(
+    makeAiActionButton(provider.id === expandedAiProviderId ? '▾' : '▸', 'toggle-details'),
     makeAiActionButton('↑', 'move-up', index === 0 ? true : false),
     makeAiActionButton('↓', 'move-down', index === aiProviders.length - 1 ? true : false),
     makeAiActionButton('Duplicate', 'duplicate'),
@@ -399,6 +541,10 @@ function createAiProviderCard(provider, index) {
   );
   head.append(controls);
   item.append(head);
+
+  const body = document.createElement('div');
+  body.className = 'ai-provider-body';
+  item.append(body);
 
   const grid = document.createElement('div');
   grid.className = 'custom-ai-grid ai-provider-grid';
@@ -408,7 +554,7 @@ function createAiProviderCard(provider, index) {
     aiField('API URL / Base URL', 'apiUrl', provider.apiUrl, 'url', 'https://api.deepseek.com', 'custom-ai-url'),
     aiField('API Key', 'apiKey', aiSecrets[provider.id]?.apiKey || '', 'password', 'sk-...', 'custom-ai-key')
   );
-  item.append(grid);
+  body.append(grid);
 
   const showKey = document.createElement('label');
   showKey.className = 'toggle-row compact-toggle ai-show-key';
@@ -418,7 +564,7 @@ function createAiProviderCard(provider, index) {
   showBox.type = 'checkbox';
   showBox.dataset.aiAction = 'show-key';
   showKey.append(showText, showBox);
-  item.append(showKey);
+  body.append(showKey);
 
   const nums = document.createElement('div');
   nums.className = 'custom-ai-grid numeric-grid';
@@ -427,7 +573,7 @@ function createAiProviderCard(provider, index) {
     aiField('Max text length', 'maxTextLength', provider.maxTextLength, 'number', '6000', '', { min: '100', max: '30000', step: '100' }),
     aiField('Max output tokens', 'maxOutputTokens', provider.maxOutputTokens, 'number', '1800', '', { min: '128', max: '16000', step: '128' })
   );
-  item.append(nums);
+  body.append(nums);
 
   const presetLabel = document.createElement('label');
   presetLabel.className = 'field';
@@ -443,25 +589,25 @@ function createAiProviderCard(provider, index) {
     preset.append(option);
   });
   presetLabel.append(presetSpan, preset);
-  item.append(presetLabel);
+  body.append(presetLabel);
 
-  item.append(aiTextAreaField('System Prompt', 'systemPrompt', provider.systemPrompt, 7));
-  item.append(aiTextAreaField('User Prompt Template', 'userPromptTemplate', provider.userPromptTemplate, 4));
+  body.append(aiTextAreaField('System Prompt', 'systemPrompt', provider.systemPrompt, 7));
+  body.append(aiTextAreaField('User Prompt Template', 'userPromptTemplate', provider.userPromptTemplate, 4));
 
   const hint = document.createElement('p');
   hint.className = 'hint';
   hint.innerHTML = 'Use <code>{{text}}</code> where selected text should be inserted. Base URLs are automatically converted to <code>/chat/completions</code>. Modified prompts are saved and reused until you change them again.';
-  item.append(hint);
+  body.append(hint);
 
   const actions = document.createElement('div');
   actions.className = 'actions ai-provider-actions';
   actions.append(makeAiActionButton('Test API', 'test'), makeAiActionButton('Reset prompt to preset', 'reset-prompt'));
-  item.append(actions);
+  body.append(actions);
   const result = document.createElement('pre');
   result.className = 'custom-ai-test-result';
   result.hidden = true;
   result.dataset.aiTestResult = 'true';
-  item.append(result);
+  body.append(result);
   return item;
 }
 
@@ -530,6 +676,14 @@ async function handleAiProviderAction(event) {
   if (!action) return;
   const card = event.target.closest('.ai-provider-item');
   const id = card?.dataset?.providerId;
+  if (action === 'toggle-details') {
+    card?.classList.toggle('collapsed');
+    const button = event.target;
+    const isCollapsed = card?.classList.contains('collapsed');
+    expandedAiProviderId = isCollapsed ? '' : String(id || '');
+    if (button) button.textContent = isCollapsed ? '▸' : '▾';
+    return;
+  }
   if (action === 'show-key') {
     const input = card?.querySelector('[data-ai-field="apiKey"]');
     if (input) input.type = event.target.checked ? 'text' : 'password';
@@ -549,6 +703,7 @@ async function handleAiProviderAction(event) {
     const copy = { ...aiProviders[index], id: createAiProviderId(), providerName: `${aiProviders[index].providerName} Copy`, enabled: false };
     aiProviders.splice(index + 1, 0, normalizeAiProvider(copy, index + 1));
     aiSecrets[copy.id] = { apiKey: '' };
+    expandedAiProviderId = copy.id;
     renderAiProviders(); await saveSettings(); return;
   }
   if (action === 'delete' && index >= 0 && aiProviders.length > 1) {
@@ -616,6 +771,10 @@ async function testAiProvider(providerId) {
     if (output) output.textContent = String(response.data?.translation || '').trim() || 'AI Provider responded successfully.';
     status('AI Provider test completed.');
   } catch (error) {
+    card?.classList.remove('collapsed');
+    expandedAiProviderId = providerId;
+    const toggle = card?.querySelector('[data-ai-action="toggle-details"]');
+    if (toggle) toggle.textContent = '▾';
     if (output) output.textContent = `Test failed: ${String(error?.message || error)}`;
     status('AI Provider test failed.');
   }
@@ -631,13 +790,14 @@ async function saveSettings(options = {}) {
     onlineLookup: $('onlineLookup').checked,
     accent: $('accent').value,
     translationProviders: readTranslationProviderSettings(),
+    sentenceTranslationConfigs: readSentenceTranslationConfigSettings(),
     customAiProvider: aiProviders[0] ? { ...aiProviders[0] } : defaultCustomAiProvider(),
     aiProviders,
     themeLockedByUser: true
   };
   $('fontSize').value = settings.fontSize;
   $('panelWidth').value = settings.panelWidth;
-  await chrome.storage.local.set({ dictFloatSettings: settings, dictFloatAiSecrets: aiSecrets });
+  await chrome.storage.local.set({ dictFloatSettings: settings, dictFloatAiSecrets: aiSecrets, dictFloatTranslationSecrets: translationSecrets });
   applyAccent(settings.accent);
   if (!options.quiet) status('Saved. Open windows update immediately.');
 }
