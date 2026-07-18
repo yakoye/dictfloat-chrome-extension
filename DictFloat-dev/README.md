@@ -1,8 +1,8 @@
-# DictFloat v0.3.6
+# DictFloat v0.3.7
 
 Compact Chrome floating dictionary for selected-text lookup, local professional glossaries, Wudao offline data, and online fallback.
 
-## v0.3.6 highlights / 本版重点
+## v0.3.7 highlights / 本版重点
 
 ### Ordered lookup sources / 查询来源排序
 
@@ -55,7 +55,7 @@ Compact Chrome floating dictionary for selected-text lookup, local professional 
 - Settings now supports **Import dictionary folder** as well as manual multi-file selection.
 - Multi-part resources such as `TLD.mdd`, `TLD.1.mdd` … `TLD.6.mdd` and Oxford-style `.mdd`, `.1.mdd`, `.2.mdd` are grouped with the matching MDX source.
 - Imported MDX / MDD sources appear in Lookup order and can be positioned now.
-- **Important:** v0.3.6 still does not decode MDX key/record blocks or render MDX entries. It only handles source metadata, source grouping, enable/disable controls, and order. The next decoder stage is the real MDX lookup implementation.
+- **Important:** v0.3.7 still does not decode MDX key/record blocks or render MDX entries. It only handles source metadata, source grouping, enable/disable controls, and order. The next decoder stage is the real MDX lookup implementation.
 
 ## Existing capabilities / 已有功能
 
@@ -80,10 +80,10 @@ The selected files are copied to DictFloat's local IndexedDB. Removing the pack 
 
 1. Open **Settings** → **MDX / MDD dictionaries**.
 2. Use **Import dictionary folder** for a complete dictionary folder, or select one `.mdx` with its matching `.mdd` files.
-3. DictFloat reads headers and associates multi-part MDD resources.
-4. Use **Lookup order** to place that dictionary in the future display order.
+3. DictFloat builds a local text index for the MDX and associates multi-part MDD resources.
+4. Use **Lookup order** to choose which dictionary appears first in the floating panel.
 
-For dictionaries with external `.js`, the scripts are never executed. CSS, fonts, images, audio, and actual MDX entry rendering belong to later decoder/resource stages.
+For dictionaries with external `.js`, the scripts are never executed. This release renders sanitized MDX text and basic HTML only; CSS, fonts, MDD images, and audio are future resource stages.
 
 ## Installation / 安装
 
@@ -92,3 +92,20 @@ For dictionaries with external `.js`, the scripts are never executed. CSS, fonts
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select the extracted folder.
 5. After an update, use the refresh button on the DictFloat card and refresh any currently open test page.
+
+
+## v0.3.7
+
+- Removed card-style borders around dictionary result sections; source groups now use lightweight dividers.
+- Added local MDX text indexing for unencrypted / key-info-encrypted MDict v1/v2 dictionaries that use zlib or no compression.
+- Imported MDX entries are stored in DictFloat IndexedDB and can be looked up by the floating panel without re-selecting files.
+- MDD files are grouped and recorded for future media rendering; this text-first release does not yet render MDD image/audio resources.
+
+## v0.3.7 — MDX text lookup beta
+
+- Result sources are no longer rendered as bordered cards. They use only a thin divider between dictionaries.
+- Imported MDX files are now parsed into a local IndexedDB text index and can participate in normal lookup order.
+- Supports common MDict v1/v2 MDX files that use uncompressed or zlib/deflate key and record blocks, including `Encrypted=2` key-index metadata.
+- Detects paired and multipart MDD resources for display and future media support. This text-first phase does not yet render MDD images or audio, and does not execute third-party dictionary JavaScript.
+- MDX sources created by older DictFloat releases contain header metadata only; remove and re-import them once to build the new local text index.
+- Explicitly reports unsupported LZO compression or record-block encryption instead of showing a fake successful import.

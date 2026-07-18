@@ -179,7 +179,7 @@ function knownLookupSources() {
   }
   mdictSources.forEach((source) => sources.push({
     key: sourceKeyForMdict(source), type: 'MDX / MDD', name: source.name,
-    meta: source.status === 'ready' ? 'Ready for lookup' : 'Header imported · decoder in progress',
+    meta: source.status === 'ready' ? `${(source.recordCount || 0).toLocaleString()} indexed text entries` : 'Reimport required to build the text index',
     enabled: source.enabled !== false
   }));
   sources.push({ key: 'online', type: 'Online', name: 'Online', meta: 'Public online fallback', enabled: $('onlineLookup')?.checked !== false });
@@ -249,36 +249,51 @@ async function importMdictFiles(event) {
     status('Choose at least one .mdx file.', true);
     return;
   }
+  if (!globalThis.DictFloatMdictCore || !globalThis.DictFloatMdictDB) {
+    status('The MDX decoder did not load. Reload the Settings page and try again.', true);
+    return;
+  }
 
+  const imported = [];
   try {
-    const newSources = [];
-    for (const mdx of mdxFiles) {
-      const header = await parseMdictHeader(mdx);
+    for (let index = 0; index < mdxFiles.length; index += 1) {
+      const mdx = mdxFiles[index];
+      status(`Importing ${mdx.name} (${index + 1}/${mdxFiles.length})…`);
+      const parsed = await DictFloatMdictCore.parseMdx(mdx, {
+        onProgress: (progress) => status(`${mdx.name}: ${progress.message}`)
+      });
       const base = basename(mdx.name);
       const basePattern = new RegExp('^' + escapeRegExp(base) + '(?:\\.\\d+)?$', 'i');
       const matchingMdds = mddFiles.filter((file) => basePattern.test(basename(file.name)));
       const source = normalizeMdictSource({
         id: crypto.randomUUID(),
-        name: header.title || base,
+        name: parsed.header.title || base,
         enabled: true,
         fileName: mdx.name,
         fileSize: mdx.size,
         lastModified: mdx.lastModified,
         addedAt: Date.now(),
-        header,
+        header: parsed.header,
+        lookup: parsed.lookup,
         mddFiles: matchingMdds.map((file) => ({ name: file.name, size: file.size, lastModified: file.lastModified })),
-        status: 'header-ready'
+        recordCount: parsed.entries.length,
+        parser: 'dictfloat-mdx-text-v1',
+        status: 'ready'
       });
+      const storedCount = await DictFloatMdictDB.replacePack(source, parsed.entries);
+      source.recordCount = storedCount;
       mdictSources = mdictSources.filter((item) => !(item.fileName === source.fileName && item.fileSize === source.fileSize));
       mdictSources.unshift(source);
-      newSources.push(source);
+      imported.push(source);
     }
     await saveMdictSources();
     renderMdictSources();
     renderSourceOrder();
-    const pairCount = newSources.filter((source) => source.mddFiles.length).length;
-    status(`Added ${newSources.length} MDX source${newSources.length === 1 ? '' : 's'}; ${pairCount} matched MDD resource pair${pairCount === 1 ? '' : 's'}.`);
+    const total = imported.reduce((sum, source) => sum + source.recordCount, 0);
+    status(`Imported ${imported.length} MDX dictionar${imported.length === 1 ? 'y' : 'ies'} with ${total.toLocaleString()} local text entries.`);
   } catch (error) {
+    renderMdictSources();
+    renderSourceOrder();
     status(`MDX import failed: ${error.message}`, true);
   }
 }
@@ -289,7 +304,7 @@ function renderMdictSources() {
   if (!mdictSources.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-list';
-    empty.textContent = 'No MDX / MDD source has been added yet.';
+    empty.textContent = 'No MDX / MDD source has been imported yet.';
     list.append(empty);
     return;
   }
@@ -315,11 +330,13 @@ function renderMdictSources() {
     meta.className = 'dictionary-meta';
     const engine = source.header.engineVersion ? `Engine ${source.header.engineVersion}` : 'MDict header';
     const encoding = source.header.encoding || 'encoding unknown';
-    const mdd = source.mddFiles.length ? `${source.mddFiles.length} MDD resource file${source.mddFiles.length === 1 ? '' : 's'}` : 'no MDD resources attached';
+    const mdd = source.mddFiles.length ? `${source.mddFiles.length} MDD file${source.mddFiles.length === 1 ? '' : 's'} detected` : 'no MDD resources';
     meta.textContent = `${source.fileName} · ${formatSize(source.fileSize)} · ${engine} · ${encoding} · ${mdd}`;
     const state = document.createElement('div');
     state.className = 'source-status';
-    state.textContent = source.status === 'ready' ? 'Ready for lookup' : 'Header imported · lookup decoder in progress';
+    state.textContent = source.status === 'ready'
+      ? `Text lookup ready · ${(source.recordCount || 0).toLocaleString()} entries${source.mddFiles.length ? ' · MDD media pending' : ''}`
+      : 'Reimport required · this older source has header metadata only';
     info.append(name, meta, state);
     const actions = document.createElement('div');
     actions.className = 'dictionary-actions';
@@ -330,67 +347,24 @@ function renderMdictSources() {
 }
 
 async function removeMdictSource(source) {
-  if (!confirm(`Remove the MDX source record for “${source.name}”? The original files on disk are not changed.`)) return;
-  mdictSources = mdictSources.filter((item) => item.id !== source.id);
-  sourceOrder = normalizeSourceOrder(sourceOrder);
-  await saveMdictSources();
-  await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
-  renderMdictSources();
-  renderSourceOrder();
-  status('MDX source record removed.');
+  if (!confirm(`Remove “${source.name}” and its local MDX text index? Your original files on disk are not changed.`)) return;
+  try {
+    if (globalThis.DictFloatMdictDB) await DictFloatMdictDB.removePack(source.id);
+    mdictSources = mdictSources.filter((item) => item.id !== source.id);
+    sourceOrder = normalizeSourceOrder(sourceOrder);
+    await saveMdictSources();
+    await chrome.storage.local.set({ dictFloatSourceOrder: sourceOrder });
+    renderMdictSources();
+    renderSourceOrder();
+    status('MDX dictionary removed.');
+  } catch (error) {
+    status(`Unable to remove the MDX dictionary: ${error.message}`, true);
+  }
 }
 
 async function saveMdictSources() {
   sourceOrder = normalizeSourceOrder(sourceOrder);
   await chrome.storage.local.set({ dictFloatMdictSources: mdictSources, dictFloatSourceOrder: sourceOrder });
-}
-
-async function parseMdictHeader(file) {
-  if (file.size < 12) throw new Error('The file is too small to be an MDX dictionary.');
-  const prefix = new Uint8Array(await file.slice(0, Math.min(file.size, 2 * 1024 * 1024)).arrayBuffer());
-  const headerLength = readU32BE(prefix, 0);
-  if (!headerLength || headerLength > 1024 * 1024 || 4 + headerLength + 4 > file.size) {
-    throw new Error('Unable to read an MDict header. The file may be encrypted or not be a valid MDX file.');
-  }
-  const headerBytes = prefix.slice(4, 4 + headerLength);
-  const headerText = decodeMdictHeader(headerBytes);
-  if (!/<Dictionary\b/i.test(headerText)) throw new Error('This file does not contain a recognizable MDict Dictionary header.');
-  const attributes = parseXmlAttributes(headerText);
-  return {
-    title: attributes.Title || attributes.title || '',
-    description: attributes.Description || attributes.description || '',
-    engineVersion: attributes.GeneratedByEngineVersion || attributes.EngineVersion || attributes.Version || '',
-    encoding: attributes.Encoding || attributes.encoding || '',
-    encrypted: attributes.Encrypted || attributes.encrypted || '0',
-    keyCaseSensitive: attributes.KeyCaseSensitive || '',
-    stripKey: attributes.StripKey || ''
-  };
-}
-
-function decodeMdictHeader(bytes) {
-  const hasAlternatingNulls = bytes.length > 4 && bytes[1] === 0 && bytes[3] === 0;
-  const text = hasAlternatingNulls
-    ? new TextDecoder('utf-16le').decode(bytes)
-    : new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  return text.replace(/^\uFEFF/, '').replace(/\0/g, '').trim();
-}
-
-function parseXmlAttributes(text) {
-  const root = text.match(/<Dictionary\b[^>]*>/i)?.[0] || text;
-  const attrs = {};
-  root.replace(/([A-Za-z][\w.-]*)\s*=\s*(["'])(.*?)\2/g, (_all, key, _quote, value) => {
-    attrs[key] = decodeXml(value);
-    return _all;
-  });
-  return attrs;
-}
-
-function readU32BE(bytes, offset) {
-  return ((bytes[offset] << 24) >>> 0) + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3];
-}
-
-function decodeXml(value) {
-  return String(value || '').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
 
 function basename(filename) {
@@ -416,8 +390,14 @@ function normalizeMdictSource(source) {
       keyCaseSensitive: String(source.header?.keyCaseSensitive || ''),
       stripKey: String(source.header?.stripKey || '')
     },
+    lookup: {
+      caseSensitive: source.lookup?.caseSensitive === true,
+      stripKey: source.lookup?.stripKey !== false
+    },
     mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles.map((item) => ({ name: String(item.name || ''), size: Number(item.size || 0), lastModified: Number(item.lastModified || 0) })) : [],
-    status: 'header-ready'
+    recordCount: Number(source.recordCount || 0),
+    parser: String(source.parser || ''),
+    status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'header-ready'
   };
 }
 

@@ -1,5 +1,7 @@
+importScripts('mdict-db.js');
+
 const MENU_ID = 'dictfloat-lookup-selection';
-const CONTENT_RUNTIME_VERSION = '0.3.6';
+const CONTENT_RUNTIME_VERSION = '0.3.7';
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -36,6 +38,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'DICTFLOAT_WUDAO_LOOKUP') {
     lookupWudao(String(message.query || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+  if (message?.type === 'DICTFLOAT_MDICT_LOOKUP') {
+    lookupMdict(message.source || {}, String(message.query || ''))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
@@ -148,6 +156,19 @@ function normalizeDictionaries(input) {
 
 function inferDictionaryId(entry) {
   return String(entry?.source || '').includes('DictFloat starter') ? 'pcie-starter' : 'my-glossary';
+}
+
+async function lookupMdict(source, rawQuery) {
+  const query = String(rawQuery || '').trim();
+  if (!query || !source?.id) return null;
+  if (!globalThis.DictFloatMdictDB) throw new Error('MDX storage is unavailable.');
+  const row = await DictFloatMdictDB.getEntry(source, query);
+  if (!row?.values?.length) return null;
+  return {
+    term: row.values[0].term || query,
+    definitions: row.values.map((item) => ({ term: item.term || query, definition: item.definition || '' })),
+    sourceId: source.id
+  };
 }
 
 async function lookupOnline(rawQuery) {

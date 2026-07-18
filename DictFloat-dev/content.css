@@ -461,13 +461,19 @@ button { -webkit-appearance: none; appearance: none; }
    compact header, so local glossaries, Wudao, Online, and later MDX lookups
    remain visually consistent inside the one DictFloat panel. */
 .dictfloat-source-section {
-  margin: 0 0 9px;
-  border: 1px solid #e6ebf2;
-  border-radius: 9px;
-  overflow: hidden;
-  background: #fff;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
 }
-.dark .dictfloat-source-section { border-color:#2b394f; background:#151f2e; }
+.dictfloat-source-section + .dictfloat-source-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf1f5;
+}
+.dark .dictfloat-source-section { background:transparent; }
+.dark .dictfloat-source-section + .dictfloat-source-section { border-top-color:#2a374b; }
 .dictfloat-source-header {
   width: 100%;
   min-height: 31px;
@@ -475,16 +481,16 @@ button { -webkit-appearance: none; appearance: none; }
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 6px 7px 6px 9px;
+  padding: 4px 1px 5px;
   border: 0;
-  background: #fbfcff;
+  background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
 }
-.dictfloat-source-header:hover { background:#f5f7fb; }
-.dark .dictfloat-source-header { background:#192537; }
-.dark .dictfloat-source-header:hover { background:#223148; }
+.dictfloat-source-header:hover { background:transparent; color:#c34d83; }
+.dark .dictfloat-source-header { background:transparent; }
+.dark .dictfloat-source-header:hover { background:transparent; color:#f59ac5; }
 .dictfloat-source-left {
   display: flex;
   align-items: baseline;
@@ -541,9 +547,28 @@ button { -webkit-appearance: none; appearance: none; }
   transform: translateY(-1px);
 }
 .dark .dictfloat-source-chevron { color:#9eacc0; }
-.dictfloat-source-body { padding: 3px 3px 4px; }
+.dictfloat-source-body { padding: 2px 1px 5px; }
 .dictfloat-source-section.collapsed .dictfloat-source-header { border-bottom:0; }
 .dictfloat-source-section.local .dictfloat-result-item { padding: 7px 6px; }
 .dictfloat-source-section.local .dictfloat-result-item:hover { background:#f6f8fb; }
 .dark .dictfloat-source-section.local .dictfloat-result-item:hover { background:#202d41; }
 .dictfloat-source-section .dictfloat-inline-actions { justify-content:flex-end; padding:7px 4px 3px; }
+
+
+/* Imported MDX text is kept inside the DictFloat shadow root. Original
+   dictionary CSS and JavaScript are deliberately not applied. */
+.dictfloat-mdx-html { color:inherit; font-size:11px; line-height:1.52; overflow-wrap:anywhere; }
+.dictfloat-mdx-html * { max-width:100%; box-sizing:border-box; }
+.dictfloat-mdx-html p, .dictfloat-mdx-html div { margin:0 0 6px; }
+.dictfloat-mdx-html p:last-child, .dictfloat-mdx-html div:last-child { margin-bottom:0; }
+.dictfloat-mdx-html h1, .dictfloat-mdx-html h2, .dictfloat-mdx-html h3, .dictfloat-mdx-html h4 { margin:7px 0 4px; color:#26344b; font-size:11px; line-height:1.35; }
+.dictfloat-mdx-html ol, .dictfloat-mdx-html ul { margin:4px 0 6px; padding-left:18px; }
+.dictfloat-mdx-html li { margin:2px 0; }
+.dictfloat-mdx-html table { width:100%; border-collapse:collapse; margin:5px 0; }
+.dictfloat-mdx-html td, .dictfloat-mdx-html th { padding:3px 4px; border-bottom:1px solid #edf1f5; text-align:left; vertical-align:top; }
+.dictfloat-mdx-html b, .dictfloat-mdx-html strong { font-weight:750; }
+.dictfloat-mdx-html a { color:inherit; text-decoration:none; }
+.dictfloat-mdx-duplicate-term { margin:8px 0 4px; padding-top:7px; border-top:1px solid #edf1f5; color:#5e6e85; font-size:10px; font-weight:700; }
+.dark .dictfloat-mdx-html h1, .dark .dictfloat-mdx-html h2, .dark .dictfloat-mdx-html h3, .dark .dictfloat-mdx-html h4 { color:#d9e3f2; }
+.dark .dictfloat-mdx-html td, .dark .dictfloat-mdx-html th, .dark .dictfloat-mdx-duplicate-term { border-color:#2a374b; }
+.dark .dictfloat-mdx-duplicate-term { color:#aebbd0; }

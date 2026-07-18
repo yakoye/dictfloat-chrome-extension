@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.6';
+  const RUNTIME_VERSION = '0.3.7';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -47,6 +47,7 @@
     position: null,
     online: { query: '', status: 'idle', data: null, error: '' },
     wudao: { query: '', status: 'idle', data: null, error: '' },
+    mdx: new Map(),
     wudaoSource: { installed: false, enabled: false },
     draftEntry: null,
     cssPromise: null,
@@ -494,12 +495,13 @@
         appended += appendWudaoSection(box, source) ? 1 : 0;
         continue;
       }
+      if (source.kind === 'mdx') {
+        appended += appendMdictSection(box, source) ? 1 : 0;
+        continue;
+      }
       if (source.kind === 'online') {
         appended += appendOnlineSection(box, source) ? 1 : 0;
       }
-      // MDX sources already participate in order management. They are not
-      // rendered until their entry decoder is available, so this build never
-      // shows a misleading empty card for an imported dictionary.
     }
     if (!appended && query) box.append(el('div', 'dictfloat-empty', 'No result yet.'));
   }
@@ -724,6 +726,100 @@
     }
     box.append(section.node);
     return true;
+  }
+
+  function appendMdictSection(box, source) {
+    const lookup = state.mdx.get(source.id);
+    if (!state.query.trim() || !lookup || lookup.query !== state.query.trim()) return false;
+    if (lookup.status === 'done' && !lookup.data) return false;
+    const data = lookup.data || {};
+    const primaryDefinition = data.definitions?.[0]?.definition || '';
+    const section = createSourceSection({
+      key: source.key,
+      term: data.term || state.query,
+      detail: extractMdictPhonetic(primaryDefinition),
+      badge: source.name,
+      tone: 'mdx'
+    });
+    if (lookup.status === 'loading') {
+      section.body.append(el('div', 'dictfloat-online-status', 'Searching local MDX…'));
+    } else if (lookup.status === 'error') {
+      const status = el('div', 'dictfloat-online-status', 'MDX lookup is unavailable.');
+      status.title = lookup.error || '';
+      section.body.append(status);
+    } else if (lookup.status === 'done' && data.definitions?.length) {
+      const definition = el('div', 'dictfloat-mdx-html');
+      data.definitions.slice(0, 4).forEach((item, index) => {
+        if (index > 0) definition.append(el('div', 'dictfloat-mdx-duplicate-term', item.term || data.term));
+        definition.append(safeMdictHtml(item.definition));
+      });
+      section.body.append(definition);
+      const actions = el('div', 'dictfloat-inline-actions');
+      const save = el('button', '', '+ Save');
+      save.type = 'button';
+      save.addEventListener('click', () => {
+        state.draftEntry = mdictToDraft(data, source.name);
+        state.editingId = null;
+        state.selectedId = null;
+        state.view = 'add';
+        renderContentOnly();
+      });
+      const copy = el('button', '', 'Copy');
+      copy.type = 'button';
+      copy.addEventListener('click', () => copyText(formatMdictCopy(data, source.name), copy));
+      actions.append(save, copy);
+      section.body.append(actions);
+    }
+    box.append(section.node);
+    return true;
+  }
+
+  function safeMdictHtml(raw) {
+    const output = document.createElement('div');
+    const doc = new DOMParser().parseFromString(String(raw || ''), 'text/html');
+    doc.querySelectorAll('script,style,link,iframe,frame,object,embed,form,input,button,video,audio,source,img,svg,canvas').forEach((node) => node.remove());
+    doc.querySelectorAll('*').forEach((node) => {
+      [...node.attributes].forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = String(attr.value || '').trim().toLowerCase();
+        if (name.startsWith('on') || name === 'style' || name === 'src' || name === 'href' || value.startsWith('javascript:')) node.removeAttribute(attr.name);
+      });
+    });
+    const fragment = document.createDocumentFragment();
+    while (doc.body.firstChild) fragment.append(doc.body.firstChild);
+    output.append(fragment);
+    if (!output.textContent.trim()) output.textContent = String(raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return output;
+  }
+
+  function extractMdictPhonetic(raw) {
+    const text = String(raw || '').replace(/<[^>]+>/g, ' ');
+    const match = text.match(/(?:\[[^\]\n]{2,36}\]|\/[^/\n]{2,36}\/)/);
+    return match ? match[0].trim() : '';
+  }
+
+  function mdictToDraft(data, sourceName) {
+    const first = data.definitions?.[0] || {};
+    const text = mdictText(first.definition || '');
+    return {
+      term: data.term || state.query,
+      aliases: [],
+      chinese: '',
+      definition: text,
+      tags: ['MDX'],
+      related: [],
+      category: '',
+      source: sourceName
+    };
+  }
+
+  function mdictText(raw) {
+    const doc = new DOMParser().parseFromString(String(raw || ''), 'text/html');
+    return String(doc.body.textContent || '').replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
+  function formatMdictCopy(data, sourceName) {
+    return [data.term || state.query, sourceName, ...(data.definitions || []).map((item) => mdictText(item.definition || ''))].filter(Boolean).join('\n');
   }
 
   function appendOnlineSection(box, source = { key: 'online', name: 'Online' }) {
@@ -958,9 +1054,14 @@
     state.formReturnState = null;
     state.online = { query, status: state.settings.onlineLookup && query ? 'loading' : 'idle', data: null, error: '' };
     state.wudao = { query, status: state.wudaoSource.installed && state.wudaoSource.enabled && query ? 'loading' : 'idle', data: null, error: '' };
+    state.mdx = new Map();
+    state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready').forEach((source) => {
+      state.mdx.set(source.id, { query, status: 'loading', data: null, error: '' });
+    });
     if (query) void addHistoryQuery(query);
     render();
     if (state.wudaoSource.installed && state.wudaoSource.enabled && query) void lookupWudao(query);
+    state.mdictSources.filter((source) => source.enabled !== false && source.status === 'ready' && query).forEach((source) => void lookupMdict(source, query));
     if (state.settings.onlineLookup && query) void lookupOnline(query);
     focusSearch(true);
   }
@@ -974,6 +1075,19 @@
     } catch (error) {
       if (state.query !== query) return;
       state.wudao = { query, status: 'error', data: null, error: String(error?.message || error) };
+    }
+    renderContentOnly();
+  }
+
+  async function lookupMdict(source, query) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_MDICT_LOOKUP', source, query });
+      if (state.query !== query) return;
+      if (!response?.ok) throw new Error(response?.error || 'MDX lookup failed');
+      state.mdx.set(source.id, { query, status: 'done', data: response.data || null, error: '' });
+    } catch (error) {
+      if (state.query !== query) return;
+      state.mdx.set(source.id, { query, status: 'error', data: null, error: String(error?.message || error) });
     }
     renderContentOnly();
   }
@@ -1099,8 +1213,15 @@
       id: String(source.id || crypto.randomUUID()),
       name: String(source.name || source.fileName || 'Untitled MDX dictionary'),
       enabled: source.enabled !== false,
-      status: String(source.status || 'header-ready'),
+      status: source.status === 'ready' && Number(source.recordCount || 0) > 0 ? 'ready' : 'header-ready',
+      parser: String(source.parser || ''),
       fileName: String(source.fileName || ''),
+      fileSize: Number(source.fileSize || 0),
+      recordCount: Number(source.recordCount || 0),
+      lookup: {
+        caseSensitive: source.lookup?.caseSensitive === true,
+        stripKey: source.lookup?.stripKey !== false
+      },
       mddFiles: Array.isArray(source.mddFiles) ? source.mddFiles : []
     })) : [];
   }
