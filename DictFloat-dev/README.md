@@ -1,3 +1,6 @@
+## v0.1.3
+- Replaced the redundant search-side key hint with an × clear button.
+
 # DictFloat v0.1.2
 
 A compact floating local dictionary Chrome extension.

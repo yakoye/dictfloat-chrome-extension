@@ -123,7 +123,21 @@
     input.autocomplete = 'off'; input.spellcheck = false;
     input.addEventListener('input', () => { state.query = input.value; state.selectedId = null; renderContentOnly(); });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookup(input.value); if (e.key === 'Escape') { input.value = ''; state.query = ''; renderContentOnly(); } });
-    box.append(input, el('kbd', '', '↵'));
+    const clearBtn = el('button', 'dictfloat-search-clear', '×');
+    clearBtn.type = 'button';
+    clearBtn.title = 'Clear search';
+    clearBtn.setAttribute('aria-label', 'Clear search');
+    clearBtn.hidden = !input.value;
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      state.query = '';
+      state.selectedId = null;
+      clearBtn.hidden = true;
+      renderContentOnly();
+      input.focus();
+    });
+    input.addEventListener('input', () => { clearBtn.hidden = !input.value; });
+    box.append(input, clearBtn);
     wrap.append(box); return wrap;
   }
 
