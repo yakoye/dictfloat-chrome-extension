@@ -539,30 +539,49 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-source-header { background:transparent; }
 .dark .dictfloat-source-header:hover { background:transparent; color:var(--df-accent-strong); }
 .dictfloat-source-save {
-  flex:0 0 14px;
-  width:14px;
-  height:16px;
-  min-width:14px;
-  min-height:16px;
+  /* Secondary action: a compact square plus, visually aligned with the
+     dictionary-name text rather than competing with it. */
+  flex:0 0 15px;
+  width:15px;
+  height:15px;
+  min-width:15px;
+  min-height:15px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  margin:0 2px 0 0;
+  margin:0 3px 0 0;
   padding:0;
-  border:0;
-  border-radius:4px;
-  background:transparent;
-  color:#8896aa;
+  border:1px solid #d6dee9;
+  border-radius:3px;
+  background:#eef2f6;
+  color:#526176;
   cursor:pointer;
   font-family:Arial, sans-serif;
-  font-size:15px;
+  font-size:14px;
   font-weight:500;
-  line-height:1;
-  opacity:.9;
+  line-height:13px;
+  vertical-align:middle;
+  opacity:1;
 }
-.dictfloat-source-save:hover { background:transparent; color:var(--df-accent-strong); opacity:1; }
-.dark .dictfloat-source-save { background:transparent; color:#aab7c9; }
-.dark .dictfloat-source-save:hover { background:transparent; color:color-mix(in srgb, var(--df-accent) 56%, white); }
+.dictfloat-source-save:hover {
+  border-color:color-mix(in srgb, var(--df-accent) 42%, #d6dee9);
+  background:color-mix(in srgb, var(--df-accent) 12%, #eef2f6);
+  color:var(--df-accent-strong);
+}
+.dictfloat-source-save:focus-visible {
+  outline:2px solid var(--df-accent-ring);
+  outline-offset:1px;
+}
+.dark .dictfloat-source-save {
+  border-color:#3d4a60;
+  background:#283548;
+  color:#c8d2e0;
+}
+.dark .dictfloat-source-save:hover {
+  border-color:color-mix(in srgb, var(--df-accent) 54%, #3d4a60);
+  background:color-mix(in srgb, var(--df-accent) 18%, #283548);
+  color:color-mix(in srgb, var(--df-accent) 58%, white);
+}
 .dictfloat-source-left {
   display: flex;
   align-items: baseline;
