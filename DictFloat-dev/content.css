@@ -286,8 +286,34 @@ button { -webkit-appearance: none; appearance: none; }
 .dictfloat-online-status { padding:7px 0; color:#8b98aa; font-size:11px; }
 
 .dictfloat-empty { padding:16px 0; color:#8b98aa; font-size:11px; text-align:center; }
-.dictfloat-history-head { justify-content:space-between; margin-bottom:5px; padding:0 2px; color:#7d8ba0; font-size:10px; }
-.dictfloat-history-head button { min-height:22px; padding:3px 7px; font-size:10px; }
+/* History uses the same row language as All. The compact clear action is the
+   only control, so the content does not look like a row of browser-default pills. */
+.dictfloat-history-head {
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  min-height:24px;
+  margin:0 0 2px;
+  padding:0 1px;
+}
+.dictfloat-history-head button {
+  min-height:22px;
+  margin:0;
+  padding:3px 7px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:#8b98aa;
+  cursor:pointer;
+  font-size:10px;
+  line-height:1.2;
+}
+.dictfloat-history-head button:hover { background:#f4f6fa; color:#d61f69; }
+.dark .dictfloat-history-head button { background:transparent; color:#94a4b9; }
+.dark .dictfloat-history-head button:hover { background:#26344b; color:#f7a7cf; }
+.dictfloat-history-item { min-height:48px; }
+.dictfloat-history-item .dictfloat-result-title { font-weight:700; }
+.dictfloat-history-item .dictfloat-history-time { margin-top:3px; }
 
 .dictfloat-add-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .dictfloat-add-form label { min-width:0; display:flex; flex-direction:column; gap:4px; color:#64748a; font-size:10px; font-weight:650; }

@@ -1,5 +1,5 @@
 (() => {
-  const RUNTIME_VERSION = '0.3.8';
+  const RUNTIME_VERSION = '0.4.0';
   // -------------------------------------------------------------------------
   // Single-window ownership guard
   //
@@ -919,10 +919,14 @@
 
   function fillHistory(box) {
     if (!state.history.length) return;
+
+    // Keep History visually consistent with All: the same clean result rows,
+    // not a collection of tag-like chips. Only the timestamp is secondary.
     const head = el('div', 'dictfloat-history-head');
-    head.append(el('span', '', 'Recent lookups'));
     const clear = el('button', '', 'Clear');
     clear.type = 'button';
+    clear.title = 'Clear history';
+    clear.setAttribute('aria-label', 'Clear history');
     clear.addEventListener('click', async () => {
       state.history = [];
       await storage.set({ dictFloatHistory: [] });
@@ -930,14 +934,15 @@
     });
     head.append(clear);
     box.append(head);
+
     state.history.forEach((item) => {
       const query = String(item.query || '').trim();
       if (!query) return;
-      const button = el('button', 'dictfloat-history-item');
+
+      const button = el('button', 'dictfloat-result-item dictfloat-history-item');
       button.type = 'button';
-      button.append(el('span', 'dictfloat-history-query', query));
-      const when = el('span', 'dictfloat-history-time', relativeTime(item.at));
-      button.append(when);
+      button.append(el('div', 'dictfloat-result-title', query));
+      button.append(el('div', 'dictfloat-result-source dictfloat-history-time', relativeTime(item.at)));
       button.addEventListener('click', () => lookup(query, { fromHistory: true }));
       box.append(button);
     });

@@ -1,28 +1,69 @@
-# DictFloat v0.3.8 — Linked MDX Performance Beta
+# DictFloat v0.4.0 — Unified Dictionary Library
 
-DictFloat is a compact Chrome floating dictionary with local glossaries, Wudao offline lookup, online fallback, selection lookup, and **linked MDX text lookup**.
+DictFloat is a compact Chrome floating dictionary for local glossaries, linked MDX text lookup, optional Wudao offline data, online fallback, and webpage selection lookup.
 
-## What changed in v0.3.8 / 本版重点
+## v0.4.0 / 本版重点
 
-- **Large MDX files are no longer fully imported or expanded into IndexedDB.**
-  - DictFloat stores only a lightweight map: MDX header, Key Block map, Record Block map, and file handles.
-  - The original `.mdx`, `.mdd`, `.css`, fonts, images, and audio stay in your selected local folder.
-  - A lookup reads only the Key Block and Record Block needed for the queried word.
-- **Indexing runs in a Worker.** Settings stays usable while a large MDX map is built.
-- **MDD media is deliberately ignored for now.** Images, audio, fonts, and dictionary JavaScript are not loaded. This is intentional for speed and safety.
-- **Original CSS can be used safely.** CSS is scoped to the MDX result body. JavaScript is never executed; imports, fonts, URLs, fixed positioning, high z-index layout escapes, and similar unsafe rules are removed.
-- **The first dictionary in Lookup order is queried first.** Later MDX dictionaries continue in the background.
-- **No nested result card.** Sources are separated only by a thin divider.
+### Unified Dictionary Library / 统一词典库
 
-## Connect a dictionary folder / 连接词典文件夹
+Settings now manages every lookup source in one **Dictionary Library** instead of splitting Wudao, MDX/MDD, local glossaries, and lookup order into separate sections.
 
-1. Open **Settings** → **MDX / MDD dictionaries**.
-2. Click **Connect dictionary folder**.
-3. Select one dictionary folder, e.g. `The little dict`, or select a parent folder such as `0-常用` to connect several dictionaries in one go.
-4. Wait for `Linked · on-demand lookup`.
-5. Open **Lookup order** and move your preferred dictionaries to the top.
+Each source is one row with:
 
-For your preferred dictionaries, start with this order:
+- enable / disable checkbox
+- order number and `↑ / ↓` controls
+- source type
+- file/package identity
+- source-specific actions
+
+Examples:
+
+```text
+🔗 TLD.mdx · 181 MB · 1 CSS · 7 MDD
+📦 en.ind · en.z · zh.ind · zh.z · 83 MB
+🔗 pcie-notes.csv · 126 editable entries
+```
+
+### Per-source controls / 每个来源独立管理
+
+- **Linked MDX/MDD**: Rename display name, Rebuild / Reconnect, Original / Compact CSS mode, Export source config, Remove.
+- **Wudao Offline**: Rename, Replace the four local data files, Export source config, Remove.
+- **Editable glossary / imported JSON/CSV**: Rename, Export its own JSON, Remove.
+- **Online fallback**: enable / disable and reorder in the same library.
+
+`Export` for linked MDX and Wudao exports **source settings only**. It never copies or redistributes dictionary files. Glossary export contains the actual editable entries.
+
+### Add source menu / 统一添加入口
+
+Use **+ Add source** to:
+
+1. Create empty glossary
+2. Import JSON / CSV glossary
+3. Import Wudao offline pack
+4. Connect MDX / MDD dictionary folder
+
+## Linked MDX performance architecture
+
+Large MDX files are linked rather than fully copied into IndexedDB:
+
+- DictFloat stores a lightweight MDX block map and file handles.
+- Raw `.mdx`, `.mdd`, `.css`, images, audio, fonts, and scripts remain in your local dictionary folder.
+- Index building runs in a Worker.
+- Lookup reads only the required Key Block and Record Block, then uses a small in-memory cache for nearby repeated queries.
+- MDD media and dictionary JavaScript remain disabled in this performance-first phase.
+
+## Original CSS / 原始 CSS
+
+When a connected folder contains a `.css` file, **Style: Original** is available:
+
+- It is scoped to the dictionary result area.
+- Standard typography, colors, indentation, numbered senses, examples, and tables are retained where safe.
+- Dictionary JavaScript, external imports, fonts, external URLs, fixed-position rules, and layout escape rules are blocked.
+- Switch to **Style: Compact** where an original theme is too dense for the small floating panel.
+
+## Recommended order / 推荐顺序
+
+For the current word dictionaries:
 
 1. The Little Dict
 2. 牛津高阶双解9
@@ -30,21 +71,7 @@ For your preferred dictionaries, start with this order:
 4. Wudao · Offline
 5. Online
 
-## Original CSS / 原始 CSS
-
-When a dictionary folder contains `.css`, DictFloat defaults to **Style: Original**:
-
-- Keeps ordinary typography, colors, indentation, example/sense hierarchy, tables, and class-based dictionary layout.
-- Does not execute `.js`, `jquery`, `fy.js`, switching scripts, or any other dictionary JavaScript.
-- Does not load MDD images/audio or TTF/OTF fonts in this release.
-- Click **Style: Original** to switch to **Style: Compact** if a particular dictionary style is too dense.
-
-## Performance expectations / 性能预期
-
-- Connecting a folder reads the lightweight block map only; it does not decode all definitions.
-- The first lookup may need to read and decompress one Key Block and one or more Record Blocks.
-- Repeated nearby queries reuse a small in-memory LRU cache (recent Key Blocks, Record Blocks, and CSS).
-- If a source cannot be opened after Chrome restart, click **Reconnect** and select the same folder again. Chrome controls folder permissions.
+Move your own PCIe / GPU glossary above the general dictionaries if you want technical terms to appear first.
 
 ## Current MDX limits / 当前限制
 
@@ -53,8 +80,7 @@ Supported in this beta:
 - MDX v1/v2
 - uncompressed and zlib/deflate Key/Record Blocks
 - common `Encrypted=2` Key Block Info
-- exact lookup with MDX `KeyCaseSensitive` and `StripKey` rules
-- linked folder storage, ordering, enable/disable, folding, history
+- linked folder lookup, source ordering, enable/disable, and scoped CSS modes
 
 Not yet supported:
 
@@ -64,7 +90,3 @@ Not yet supported:
 - TTF/OTF font loading
 - dictionary JavaScript execution
 - full visual reproduction of every MDict theme
-
-## Update note / 更新说明
-
-v0.3.0–v0.3.7 MDX sources used the old full-import path. Remove those old MDX source records in Settings, then reconnect the real dictionary folder in v0.3.8.

@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.3.8</div>
+      <div class="version">v0.4.0</div>
     </header>
 
     <section class="card">
@@ -37,35 +37,33 @@
       <p class="hint">Only an actively queried term is sent to an online provider. Local glossaries and webpage content stay on this device.</p>
     </section>
 
-    <section class="card">
-      <div class="section-title"><div><h2>Local glossaries</h2><p class="hint">Create separate PCIe, GPU, firmware, or learning glossaries. Disabled glossaries stay local but do not participate in search.</p></div><button id="addDictionary" type="button">+ New glossary</button></div>
-      <div id="dictionaryList" class="dictionary-list"></div>
-    </section>
-
-    <section class="card" id="lookupOrderCard">
-      <h2>Lookup order</h2>
-      <p class="hint">DictFloat shows matching dictionaries from top to bottom. Use ↑ and ↓ to choose what appears first. In the floating window, each dictionary result can be collapsed independently.</p>
-      <div id="sourceOrderList" class="dictionary-list source-list"></div>
-    </section>
-
-    <section class="card" id="wudaoCard">
-      <div class="section-title"><div><h2>Wudao offline dictionary <span class="beta-chip">Optional</span></h2><p class="hint">Import a local Wudao-style data pack. DictFloat keeps the four selected files in its own local IndexedDB and reads them offline.</p></div></div>
-      <div class="actions"><label class="file-btn source-file-btn">Import Wudao files<input id="importWudaoFiles" type="file" accept=".ind,.z" multiple></label><button id="removeWudaoPack" class="danger" type="button">Remove local pack</button></div>
-      <p class="hint">Select <code>en.ind</code>, <code>en.z</code>, <code>zh.ind</code>, and <code>zh.z</code> together from a local copy you are permitted to use. The pack is not bundled with DictFloat.</p>
-      <div id="wudaoSourceStatus" class="dictionary-list source-list"></div>
-    </section>
-
-    <section class="card">
-      <div class="section-title"><div><h2>MDX / MDD dictionaries <span class="beta-chip">Linked text lookup</span></h2><p class="hint">Connect a folder instead of importing the full dictionary. DictFloat stores only a lightweight block map and reads the matching text block on demand. MDD images, audio, fonts, and dictionary JavaScript stay untouched and are not loaded in this performance-first phase.</p></div></div>
-      <div class="actions"><button id="connectMdictFolder" type="button">Connect dictionary folder</button><button id="cancelMdictIndex" type="button" class="danger" hidden>Cancel indexing</button></div>
-      <p class="hint">Select one dictionary folder, or your parent <code>0-常用</code> folder to connect multiple MDX dictionaries at once. Original <code>.css</code> files are supported in a safe, scoped mode. JavaScript is never executed.</p>
-      <div id="mdictSourceList" class="dictionary-list source-list"></div>
+    <section class="card library-card" id="dictionaryLibraryCard">
+      <div class="section-title library-heading">
+        <div>
+          <h2>Dictionary Library</h2>
+          <p class="hint">All lookup sources live here. Move them up or down to choose the display order. Linked MDX files stay on your computer; local glossaries remain editable.</p>
+        </div>
+        <div class="library-add-wrap">
+          <button id="toggleAddSource" type="button" aria-expanded="false">+ Add source</button>
+          <div id="addSourceMenu" class="source-menu" hidden>
+            <button id="newGlossaryAction" type="button">Create empty glossary</button>
+            <label class="source-menu-file">Import JSON / CSV glossary<input id="importFile" type="file" accept=".json,.csv,application/json,text/csv"></label>
+            <label class="source-menu-file">Import Wudao offline pack<input id="importWudaoFiles" type="file" accept=".ind,.z" multiple></label>
+            <button id="connectMdictFolder" type="button">Connect MDX / MDD folder</button>
+          </div>
+        </div>
+      </div>
+      <div id="librarySourceList" class="dictionary-list library-source-list"></div>
+      <div class="library-progress">
+        <button id="cancelMdictIndex" type="button" class="danger" hidden>Cancel indexing</button>
+        <span id="libraryHint" class="hint">Use original CSS only inside the dictionary result area. Dictionary JavaScript, fonts, images, and audio are not executed or loaded in this performance-first mode.</span>
+      </div>
     </section>
 
     <section class="card">
-      <h2>Backup and import</h2>
-      <p class="hint">JSON preserves glossary grouping, related terms, and all entry fields. CSV is suitable for Excel.</p>
-      <div class="actions"><button id="exportJson" type="button">Export JSON</button><button id="exportCsv" type="button">Export CSV</button><label class="file-btn">Import JSON / CSV<input id="importFile" type="file" accept=".json,.csv,application/json,text/csv"></label><button class="danger" id="clearEntries" type="button">Clear all entries</button></div>
+      <h2>Backup and restore</h2>
+      <p class="hint">Export all editable glossaries and source settings together. Individual sources also have their own Export button in Dictionary Library.</p>
+      <div class="actions"><button id="exportJson" type="button">Export all JSON</button><button id="exportCsv" type="button">Export all CSV</button><button class="danger" id="clearEntries" type="button">Clear all glossary entries</button></div>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
