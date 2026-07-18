@@ -727,3 +727,17 @@ button { -webkit-appearance: none; appearance: none; }
 .dark .dictfloat-undo-bar { border-color:#3b4d67; background:#1a273a; color:#c9d4e5; }
 .dictfloat-undo-bar button { min-height:22px; margin:0; padding:3px 7px; border:0; border-radius:5px; background:#fff0f6; color:var(--df-accent-strong); cursor:pointer; font-size:10px; font-weight:700; }
 .dark .dictfloat-undo-bar button { background:#3a1c2e; color:#f7add0; }
+
+/* Dark MDX readability fallback. Dictionary-specific light skins may use
+   near-black ink and white fills; in dark mode the controlled layer in
+   content.js removes those paints while these rules preserve the reading flow. */
+.dark .dictfloat-mdx-dark-readable {
+  color:#e7eef8;
+  background:transparent;
+}
+.dark .dictfloat-mdx-dark-readable :where(p,div,span,font,li,dd,dt,td,th,em,i,b,strong,a,small,sup,sub) {
+  text-shadow:none !important;
+}
+.dark .dictfloat-mdx-dark-readable :where(td,th) {
+  border-color:#34445e !important;
+}

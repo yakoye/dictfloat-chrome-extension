@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.6'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.5.7'; }
   })();
   // -------------------------------------------------------------------------
   // Single-window ownership guard
@@ -1143,16 +1143,22 @@
       section.body.append(line);
     } else if (lookup.status === 'done' && data.definitions?.length) {
       const scopeId = `dictfloat-mdx-${String(source.id).replace(/[^a-z0-9_-]/gi, '')}`;
-      const definition = el('div', 'dictfloat-mdx-html');
+      const darkReadable = isDarkTheme();
+      const definition = el('div', `dictfloat-mdx-html${darkReadable ? ' dictfloat-mdx-dark-readable' : ''}`);
       definition.id = scopeId;
       if (data.stylesheet && source.cssMode !== 'compact') {
         const style = document.createElement('style');
-        style.textContent = scopeMdictCss(data.stylesheet, `#${scopeId}`);
+        style.textContent = scopeMdictCss(data.stylesheet, `#${scopeId}`, darkReadable);
         section.node.append(style);
+      }
+      if (darkReadable) {
+        const readableStyle = document.createElement('style');
+        readableStyle.textContent = mdictDarkReadableCss(`#${scopeId}`);
+        section.node.append(readableStyle);
       }
       data.definitions.slice(0, 4).forEach((item, index) => {
         if (index > 0) definition.append(el('div', 'dictfloat-mdx-duplicate-term', item.term || data.term));
-        definition.append(safeMdictHtml(item.definition));
+        definition.append(safeMdictHtml(item.definition, darkReadable));
       });
       section.body.append(definition);
       const actions = el('div', 'dictfloat-inline-actions');
@@ -1175,7 +1181,7 @@
     return true;
   }
 
-  function safeMdictHtml(raw) {
+  function safeMdictHtml(raw, darkReadable = false) {
     const output = document.createElement('div');
     let source = String(raw || '');
     // Some dictionaries encode line-based text rather than semantic HTML.
@@ -1189,7 +1195,7 @@
         const rawValue = String(attr.value || '').trim();
         const value = rawValue.toLowerCase();
         if (name === 'style') {
-          const safeStyle = safeMdictInlineStyle(rawValue);
+          const safeStyle = safeMdictInlineStyle(rawValue, darkReadable);
           if (safeStyle) node.setAttribute('style', safeStyle);
           else node.removeAttribute(attr.name);
           return;
@@ -1204,7 +1210,7 @@
     return output;
   }
 
-  function safeMdictInlineStyle(raw) {
+  function safeMdictInlineStyle(raw, darkReadable = false) {
     const allowed = new Set([
       'color', 'background-color', 'font-weight', 'font-style', 'font-size',
       'line-height', 'text-decoration', 'text-align', 'vertical-align',
@@ -1223,12 +1229,17 @@
       if (!allowed.has(property) || !value) continue;
       if (/url\s*\(|expression\s*\(|@import|javascript:/i.test(value)) continue;
       if (property === 'display' && /^(?:none|contents)$/i.test(value)) continue;
+      // Imported dictionary skins are usually authored for white pages. In a
+      // dark DictFloat window their inline dark ink / white paper styles make
+      // entries unreadable, so layout is preserved but color paint is handled
+      // by the controlled dark-readable layer below.
+      if (darkReadable && /^(?:color|background-color)$/i.test(property)) continue;
       output.push(`${property}:${value}`);
     }
     return output.join(';');
   }
 
-  function scopeMdictCss(raw, scope) {
+  function scopeMdictCss(raw, scope, darkReadable = false) {
     // CSS is never executed; this conservative transformer keeps ordinary
     // typography/class rules but removes external imports, URLs, fonts and
     // layout escape hatches. Every selector is rooted at this result only.
@@ -1246,6 +1257,12 @@
       if (!selectorText || selectorText.startsWith('@')) continue;
       let declarations = part.slice(brace + 1)
         .replace(/(?:^|;)\s*(?:position\s*:\s*(?:fixed|sticky)|z-index\s*:[^;]*|behavior\s*:[^;]*|filter\s*:[^;]*|animation[^;]*|transition[^;]*)/gi, ';');
+      if (darkReadable) {
+        // Keep dictionary typography, hierarchy, spacing and emphasis, but
+        // discard light-mode ink/paper colors. They are replaced by one
+        // accessible, panel-aware palette after the original CSS.
+        declarations = declarations.replace(/(?:^|;)\s*(?:color|background(?:-color|-image)?|text-shadow)\s*:[^;]*/gi, ';');
+      }
       if (!declarations.trim()) continue;
       const selectors = selectorText.split(',').map((selector) => {
         let normalized = selector.trim();
@@ -1258,6 +1275,26 @@
       if (selectors.length) rules.push(`${selectors.join(',')} {${declarations}}`);
     }
     return rules.join('\n');
+  }
+
+  function mdictDarkReadableCss(scope) {
+    // This intentionally comes after a dictionary's original CSS. Original
+    // CSS still supplies structure (indentation, numbering, bold/italic,
+    // tables), while this layer guarantees readable contrast in dark mode.
+    return `
+${scope} { color:#e7eef8 !important; background:transparent !important; text-shadow:none !important; }
+${scope} :where(p,div,span,font,li,dd,dt,td,th,em,i,b,strong,a,small,sup,sub) {
+  color:inherit !important;
+  background:transparent !important;
+  text-shadow:none !important;
+  border-color:#34445e !important;
+}
+${scope} :where(table,tr,tbody,thead,tfoot,ol,ul) { background:transparent !important; border-color:#34445e !important; }
+${scope} :where(b,strong) { color:#f8fbff !important; font-weight:750 !important; }
+${scope} :where(.pos,.part,.gram,[class*="pos"],[class*="gram"],[class*="wordclass"],[class*="pron"]) { color:#93c5fd !important; }
+${scope} :where(.example,.examples,[class*="example"],[class*="examp"],[class*="note"]) { color:#b9c8db !important; }
+${scope} :where(hr) { border-color:#34445e !important; }
+`;
   }
 
   function mdictToDraft(data, sourceName) {
