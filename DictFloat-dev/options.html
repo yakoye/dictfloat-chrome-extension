@@ -10,7 +10,7 @@
   <main class="shell">
     <header class="page-header">
       <div class="brand"><span class="brand-dot"></span><div><h1>DictFloat</h1><p>Compact floating dictionary · Local-first</p></div></div>
-      <div class="version">v0.6.2</div>
+      <div class="version">v0.6.4</div>
     </header>
 
     <section class="card">
@@ -42,7 +42,7 @@
 
     <section class="card">
       <h2>Sentence translation <span class="beta-chip">Experimental</span></h2>
-      <p class="hint">When the query contains two or more English words, DictFloat shows a manual Translate button. Choose which free providers may be used, in this fixed fallback order.</p>
+      <p class="hint">When the query contains two or more English words, DictFloat can run the enabled providers directly after you press Enter or click the selection marker.</p>
       <div class="provider-list">
         <label class="toggle-row provider-row"><span><strong>1. Chrome Built-in Translator</strong><small>Local browser translator when available. No external tab is opened.</small></span><input id="translateChrome" type="checkbox"></label>
         <label class="toggle-row provider-row"><span><strong>2. Youdao Web Bridge</strong><small>Uses a user-opened or background Youdao translation page.</small></span><input id="translateYoudaoBridge" type="checkbox"></label>
@@ -50,6 +50,30 @@
         <label class="toggle-row provider-row"><span><strong>4. Doubao Web Bridge</strong><small>Uses a user-opened or background Doubao chat page and a short translation prompt.</small></span><input id="translateDoubaoBridge" type="checkbox"></label>
       </div>
       <p class="hint">Web bridge providers are experimental. They reuse normal translation pages and may fail if the page is not logged in, has a captcha, or changes its DOM.</p>
+    </section>
+
+    <section class="card custom-ai-card">
+      <h2>Custom AI Provider <span class="beta-chip">OpenAI-compatible</span></h2>
+      <p class="hint">Use DeepSeek, Doubao / Volcengine Ark, OpenAI, OpenRouter, One API, LiteLLM, or your own compatible endpoint. Only selected text is sent after you manually trigger lookup.</p>
+      <label class="toggle-row provider-row"><span><strong>5. Enable Custom AI Provider</strong><small>Shown as the fifth sentence translation / analysis source.</small></span><input id="translateCustomAiProvider" type="checkbox"></label>
+      <div class="custom-ai-grid">
+        <label class="field"><span>Provider name</span><input id="customAiProviderName" type="text" placeholder="DeepSeek / Doubao / OpenAI"></label>
+        <label class="field"><span>Model</span><input id="customAiModel" type="text" placeholder="deepseek-chat / gpt-4o-mini"></label>
+        <label class="field custom-ai-url"><span>API URL / Base URL</span><input id="customAiApiUrl" type="url" placeholder="https://api.deepseek.com"></label>
+        <label class="field custom-ai-key"><span>API Key</span><input id="customAiApiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
+      </div>
+      <label class="toggle-row compact-toggle"><span>Show password</span><input id="customAiShowKey" type="checkbox"></label>
+      <div class="custom-ai-grid numeric-grid">
+        <label class="field"><span>Temperature</span><input id="customAiTemperature" type="number" min="0" max="2" step="0.1"></label>
+        <label class="field"><span>Max text length</span><input id="customAiMaxTextLength" type="number" min="100" max="30000" step="100"></label>
+        <label class="field"><span>Max output tokens</span><input id="customAiMaxOutputTokens" type="number" min="128" max="16000" step="128"></label>
+      </div>
+      <label class="field prompt-field"><span>System Prompt</span><textarea id="customAiSystemPrompt" rows="4"></textarea></label>
+      <label class="field prompt-field"><span>User Prompt Template</span><textarea id="customAiUserPromptTemplate" rows="5"></textarea></label>
+      <p class="hint">Use <code>{{text}}</code> where selected text should be inserted. Base URLs are automatically converted to <code>/chat/completions</code>.</p>
+      <div class="actions"><button id="customAiTest" type="button">Test API</button></div>
+      <pre id="customAiTestResult" class="custom-ai-test-result" hidden></pre>
+      <p class="hint">API Key is stored separately in <code>chrome.storage.local</code> and is not included in normal backup export.</p>
     </section>
 
     <section class="card library-card" id="dictionaryLibraryCard">

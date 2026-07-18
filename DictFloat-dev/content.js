@@ -1,6 +1,6 @@
 (() => {
   const RUNTIME_VERSION = (() => {
-    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.3'; }
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '0.6.4'; }
   })();
   // Generated at package time from content.css. Keeping the stylesheet inside
   // the content script avoids a chrome-extension:// fetch from pages with
@@ -31,6 +31,16 @@
     'dictFloatMdictSources', 'dictFloatWudaoSource', 'dictFloatSourceOrder',
     'dictFloatHistory', 'dictFloatPanelPosition', 'dictFloatCollapsedSources'
   ];
+  const DEFAULT_CUSTOM_AI_PROVIDER = {
+    providerName: 'Custom AI',
+    apiUrl: '',
+    model: '',
+    systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
+    userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
+    temperature: 0.2,
+    maxTextLength: 6000,
+    maxOutputTokens: 4000
+  };
   const DEFAULT_SETTINGS = {
     selectionMode: 'bubble',
     fontSize: 12,
@@ -38,7 +48,8 @@
     theme: 'system',
     onlineLookup: true,
     accent: 'green',
-    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false }
+    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
+    customAiProvider: { ...DEFAULT_CUSTOM_AI_PROVIDER }
   };
 
   const state = {
@@ -914,11 +925,15 @@
       providers.chrome ? 'chrome' : '',
       providers.youdao ? 'youdao' : '',
       providers.baidu ? 'baidu' : '',
-      providers.doubao ? 'doubao' : ''
+      providers.doubao ? 'doubao' : '',
+      providers.customAi ? 'customAi' : ''
     ].filter(Boolean);
   }
 
   function translationProviderLabel(key) {
+    if (key === 'customAi') {
+      return String(state.settings.customAiProvider?.providerName || 'Custom AI').trim() || 'Custom AI';
+    }
     return ({ chrome: 'Chrome Built-in', youdao: 'Youdao Bridge', baidu: 'Baidu Bridge', doubao: 'Doubao Bridge' })[key] || key;
   }
 
@@ -1027,7 +1042,7 @@
       try {
         const data = provider === 'chrome'
           ? await translateWithChromeBuiltIn(text)
-          : await translateWithWebBridge(text, [provider]);
+          : (provider === 'customAi' ? await translateWithCustomAI(text) : await translateWithWebBridge(text, [provider]));
         if (state.query.trim() !== text) return;
         update({ status: 'done', data, error: '' });
       } catch (error) {
@@ -1047,6 +1062,16 @@
     const bridgeProviders = providers.filter((item) => item !== 'chrome');
     const response = await safeRuntimeSend({ type: 'DICTFLOAT_BRIDGE_TRANSLATE', text, providers: bridgeProviders });
     if (!response?.ok) throw new Error(response?.error || 'Web bridge translation failed.');
+    return response.data;
+  }
+
+  async function translateWithCustomAI(text) {
+    const maxTextLength = clamp(Number(state.settings.customAiProvider?.maxTextLength), 100, 30000, DEFAULT_CUSTOM_AI_PROVIDER.maxTextLength);
+    if (String(text || '').length > maxTextLength) {
+      throw new Error(`Selected text is longer than Custom AI Max Text Length (${maxTextLength}).`);
+    }
+    const response = await safeRuntimeSend({ type: 'DICTFLOAT_CUSTOM_AI_TRANSLATE', text });
+    if (!response?.ok) throw new Error(response?.error || 'Custom AI Provider failed.');
     return response.data;
   }
 
@@ -2417,32 +2442,31 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     const verticalGap = Math.max(4, gap);
     const pointer = state.selectionPointer;
     const hasFreshPointer = pointer
-      && Number.isFinite(pointer.startX) && Number.isFinite(pointer.startY)
       && Number.isFinite(pointer.endX) && Number.isFinite(pointer.endY)
       && (Date.now() - Number(pointer.at || 0)) < 2500;
-    const direction = hasFreshPointer && pointer.endX < pointer.startX - 3 ? 'left' : 'right';
-    const preferredSide = direction === 'left' ? 'left' : 'right';
+    const pointerPoint = hasFreshPointer ? { x: pointer.endX, y: pointer.endY } : null;
+    const centerX = rect.left + rect.width / 2;
+    const preferredSide = pointerPoint ? (pointerPoint.x <= centerX ? 'left' : 'right') : 'right';
     const oppositeSide = preferredSide === 'left' ? 'right' : 'left';
 
-    // The trigger must not cover short selected words. Treat the selection as
-    // a rectangle/line rectangle: the circular button sits just outside the
-    // lower-left or lower-right edge. For paragraph selections, use the real
-    // first/last line rectangle instead of the whole bounding box, so a
-    // rightward selection no longer sends the icon to the far page edge.
-    const anchorRect = preferredSide === 'left'
-      ? (rect.startRect || rect.lineRects?.[0] || rect)
-      : (rect.endRect || rect.lineRects?.[rect.lineRects.length - 1] || rect);
-    const anchorX = preferredSide === 'left' ? anchorRect.left : anchorRect.right;
+    // The selection rectangle decides the no-overlap boundary; the release
+    // point only chooses the handier side/line. For multi-line selections this
+    // keeps the marker near the line where the user released the pointer. The
+    // default candidate places the whole circle outside the selected text:
+    // right selection => lower-right outside, left selection => lower-left outside.
+    const lineRects = Array.isArray(rect.lineRects) && rect.lineRects.length ? rect.lineRects : [rect];
+    const anchorRect = pointerPoint ? nearestLineRect(lineRects, pointerPoint) : (preferredSide === 'left' ? (rect.startRect || lineRects[0]) : (rect.endRect || lineRects[lineRects.length - 1]));
     const anchorBottom = anchorRect.bottom;
     const alignedTop = anchorBottom - size;
+    const belowTop = anchorBottom + verticalGap;
     const sideLeft = (side, baseRect = anchorRect) => side === 'left' ? baseRect.left - size - sideGap : baseRect.right + sideGap;
     const raw = [
-      { anchor: `edge-${preferredSide}`, left: sideLeft(preferredSide), top: alignedTop, preferred: true },
-      { anchor: `below-${preferredSide}`, left: sideLeft(preferredSide), top: anchorBottom + verticalGap },
+      { anchor: `below-${preferredSide}`, left: sideLeft(preferredSide), top: belowTop, preferred: true },
+      { anchor: `edge-${preferredSide}`, left: sideLeft(preferredSide), top: alignedTop },
       { anchor: `above-${preferredSide}`, left: sideLeft(preferredSide), top: anchorRect.top - size - verticalGap },
+      { anchor: `below-${oppositeSide}`, left: sideLeft(oppositeSide), top: belowTop },
       { anchor: `edge-${oppositeSide}`, left: sideLeft(oppositeSide), top: alignedTop },
-      { anchor: `below-${oppositeSide}`, left: sideLeft(oppositeSide), top: anchorBottom + verticalGap },
-      { anchor: `rect-edge-${preferredSide}`, left: sideLeft(preferredSide, rect), top: rect.bottom - size }
+      { anchor: `rect-below-${preferredSide}`, left: sideLeft(preferredSide, rect), top: rect.bottom + verticalGap }
     ];
     const candidates = raw.map((item) => {
       const overflow = (item.left < edge ? 30 : 0)
@@ -2463,13 +2487,24 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     })[0];
   }
 
+  function nearestLineRect(lineRects, point) {
+    const rects = Array.isArray(lineRects) && lineRects.length ? lineRects : [];
+    return rects.reduce((best, item) => {
+      const x = Math.min(item.right, Math.max(item.left, point.x));
+      const y = Math.min(item.bottom, Math.max(item.top, point.y));
+      const score = ((point.x - x) ** 2) + ((point.y - y) ** 2);
+      return !best || score < best.score ? { rect: item, score } : best;
+    }, null)?.rect || rects[0] || null;
+  }
+
   function bubbleAnchorPenalty(candidate, rect, preferredSide = 'right') {
     let penalty = 0;
     const anchor = String(candidate?.anchor || '');
-    if (!anchor.startsWith('edge') && !anchor.startsWith('rect-edge')) penalty += 6;
-    if (anchor.startsWith('above')) penalty += 10;
+    if (!anchor.startsWith('below') && !anchor.startsWith('rect-below')) penalty += 6;
+    if (anchor.startsWith('edge')) penalty += 4;
+    if (anchor.startsWith('above')) penalty += 14;
     if (!anchor.endsWith(preferredSide)) penalty += 12;
-    if (anchor.startsWith('below') && (window.innerHeight - rect.bottom) < 42) penalty += 80;
+    if ((anchor.startsWith('below') || anchor.startsWith('rect-below')) && (window.innerHeight - rect.bottom) < 42) penalty += 80;
     if (anchor.startsWith('above') && rect.top < 42) penalty += 80;
     if (anchor.endsWith('right') && (window.innerWidth - rect.right) < 36) penalty += 10;
     if (anchor.endsWith('left') && rect.left < 36) penalty += 10;
@@ -2625,7 +2660,22 @@ ${scope} :where(hr) { border-color:#34445e !important; }
       chrome: value.chrome !== false,
       youdao: value.youdao === true,
       baidu: value.baidu === true,
-      doubao: value.doubao === true
+      doubao: value.doubao === true,
+      customAi: value.customAi === true
+    };
+  }
+
+  function normalizeCustomAiProvider(input) {
+    const value = input && typeof input === 'object' ? input : {};
+    return {
+      providerName: String(value.providerName || DEFAULT_CUSTOM_AI_PROVIDER.providerName).trim() || DEFAULT_CUSTOM_AI_PROVIDER.providerName,
+      apiUrl: String(value.apiUrl || '').trim(),
+      model: String(value.model || '').trim(),
+      systemPrompt: String(value.systemPrompt || DEFAULT_CUSTOM_AI_PROVIDER.systemPrompt),
+      userPromptTemplate: String(value.userPromptTemplate || DEFAULT_CUSTOM_AI_PROVIDER.userPromptTemplate),
+      temperature: clamp(Number(value.temperature), 0, 2, DEFAULT_CUSTOM_AI_PROVIDER.temperature),
+      maxTextLength: clamp(Number(value.maxTextLength), 100, 30000, DEFAULT_CUSTOM_AI_PROVIDER.maxTextLength),
+      maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, DEFAULT_CUSTOM_AI_PROVIDER.maxOutputTokens)
     };
   }
 
@@ -2634,7 +2684,8 @@ ${scope} :where(hr) { border-color:#34445e !important; }
     return {
       ...DEFAULT_SETTINGS,
       ...raw,
-      translationProviders: normalizeTranslationProviders(raw.translationProviders || DEFAULT_SETTINGS.translationProviders)
+      translationProviders: normalizeTranslationProviders(raw.translationProviders || DEFAULT_SETTINGS.translationProviders),
+      customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || DEFAULT_SETTINGS.customAiProvider)
     };
   }
 
