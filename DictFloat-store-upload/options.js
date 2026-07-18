@@ -1,6 +1,16 @@
 const $ = (id) => document.getElementById(id);
-const defaultTranslationProviders = () => ({ chrome: true, youdao: false, baidu: false, doubao: false });
-const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders() };
+const defaultTranslationProviders = () => ({ chrome: true, youdao: false, baidu: false, doubao: false, customAi: false });
+const defaultCustomAiProvider = () => ({
+  providerName: 'Custom AI',
+  apiUrl: '',
+  model: '',
+  systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
+  userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
+  temperature: 0.2,
+  maxTextLength: 6000,
+  maxOutputTokens: 4000
+});
+const defaults = { selectionMode: 'bubble', fontSize: 12, panelWidth: 380, theme: 'system', onlineLookup: true, accent: 'green', translationProviders: defaultTranslationProviders(), customAiProvider: defaultCustomAiProvider() };
 const WUDAO_DB_NAME = 'dictfloat-wudao-v1';
 const WUDAO_STORE_NAME = 'packs';
 const WUDAO_ACTIVE_PACK_ID = 'active';
@@ -38,9 +48,11 @@ async function init() {
     'dictFloatHistory',
     'dictFloatPanelPosition',
     'dictFloatCollapsedSources',
+    'dictFloatCustomAiSecret',
     RECOVERY_SNAPSHOT_KEY
   ]);
-  const settings = { ...defaults, ...(data.dictFloatSettings || {}) };
+  const settings = normalizeSettings(data.dictFloatSettings);
+  const customAiSecret = data.dictFloatCustomAiSecret && typeof data.dictFloatCustomAiSecret === 'object' ? data.dictFloatCustomAiSecret : {};
   applyAccent(settings.accent);
   entries = (Array.isArray(data.dictFloatEntries) ? data.dictFloatEntries : []).map(normalizeEntry);
   dictionaries = normalizeDictionaries(data.dictFloatDictionaries);
@@ -58,8 +70,12 @@ async function init() {
     else element.value = settings[key];
   }
   applyTranslationProviderSettings(settings.translationProviders);
+  applyCustomAiProviderSettings(settings.customAiProvider, customAiSecret);
 
-  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  ['selectionMode', 'fontSize', 'panelWidth', 'theme', 'onlineLookup', 'accent', 'translateChrome', 'translateYoudaoBridge', 'translateBaiduBridge', 'translateDoubaoBridge', 'translateCustomAiProvider'].forEach((id) => $(id)?.addEventListener('change', async () => { await saveSettings(); renderDictionaryLibrary(); }));
+  ['customAiProviderName', 'customAiApiUrl', 'customAiModel', 'customAiApiKey', 'customAiSystemPrompt', 'customAiUserPromptTemplate', 'customAiTemperature', 'customAiMaxTextLength', 'customAiMaxOutputTokens'].forEach((id) => $(id)?.addEventListener('change', saveSettings));
+  $('customAiShowKey')?.addEventListener('change', toggleCustomAiKeyVisibility);
+  $('customAiTest')?.addEventListener('click', testCustomAiProvider);
   $('resetWindowPosition').addEventListener('click', resetWindowPosition);
   $('newGlossaryAction').addEventListener('click', async () => { closeAddSourceMenu(); await addDictionary(); });
   $('connectMdictFolder').addEventListener('click', async () => { closeAddSourceMenu(); await connectMdictFolder(); });
@@ -123,14 +139,56 @@ function normalizeTranslationProviders(input) {
     chrome: value.chrome !== false,
     youdao: value.youdao === true,
     baidu: value.baidu === true,
-    doubao: value.doubao === true
+    doubao: value.doubao === true,
+    customAi: value.customAi === true
+  };
+}
+
+function normalizeCustomAiProvider(input) {
+  const defaults = defaultCustomAiProvider();
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    providerName: String(value.providerName || defaults.providerName).trim() || defaults.providerName,
+    apiUrl: String(value.apiUrl || '').trim(),
+    model: String(value.model || '').trim(),
+    systemPrompt: String(value.systemPrompt || defaults.systemPrompt),
+    userPromptTemplate: String(value.userPromptTemplate || defaults.userPromptTemplate),
+    temperature: clamp(Number(value.temperature), 0, 2, defaults.temperature),
+    maxTextLength: clamp(Number(value.maxTextLength), 100, 30000, defaults.maxTextLength),
+    maxOutputTokens: clamp(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens)
+  };
+}
+
+function normalizeSettings(input) {
+  const raw = input && typeof input === 'object' ? input : {};
+  return {
+    ...defaults,
+    ...raw,
+    translationProviders: normalizeTranslationProviders(raw.translationProviders || defaults.translationProviders),
+    customAiProvider: normalizeCustomAiProvider(raw.customAiProvider || defaults.customAiProvider)
   };
 }
 
 function applyTranslationProviderSettings(input) {
   const providers = normalizeTranslationProviders(input);
-  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao' };
+  const map = { translateChrome: 'chrome', translateYoudaoBridge: 'youdao', translateBaiduBridge: 'baidu', translateDoubaoBridge: 'doubao', translateCustomAiProvider: 'customAi' };
   Object.entries(map).forEach(([id, key]) => { const node = $(id); if (node) node.checked = !!providers[key]; });
+}
+
+function applyCustomAiProviderSettings(input, secret = {}) {
+  const config = normalizeCustomAiProvider(input);
+  const values = {
+    customAiProviderName: config.providerName,
+    customAiApiUrl: config.apiUrl,
+    customAiModel: config.model,
+    customAiApiKey: String(secret.apiKey || ''),
+    customAiSystemPrompt: config.systemPrompt,
+    customAiUserPromptTemplate: config.userPromptTemplate,
+    customAiTemperature: config.temperature,
+    customAiMaxTextLength: config.maxTextLength,
+    customAiMaxOutputTokens: config.maxOutputTokens
+  };
+  Object.entries(values).forEach(([id, value]) => { const node = $(id); if (node) node.value = value; });
 }
 
 function readTranslationProviderSettings() {
@@ -138,11 +196,47 @@ function readTranslationProviderSettings() {
     chrome: $('translateChrome')?.checked !== false,
     youdao: $('translateYoudaoBridge')?.checked === true,
     baidu: $('translateBaiduBridge')?.checked === true,
-    doubao: $('translateDoubaoBridge')?.checked === true
+    doubao: $('translateDoubaoBridge')?.checked === true,
+    customAi: $('translateCustomAiProvider')?.checked === true
   };
 }
 
-async function saveSettings() {
+function readCustomAiProviderSettings() {
+  const defaults = defaultCustomAiProvider();
+  return normalizeCustomAiProvider({
+    providerName: $('customAiProviderName')?.value || defaults.providerName,
+    apiUrl: $('customAiApiUrl')?.value || '',
+    model: $('customAiModel')?.value || '',
+    systemPrompt: $('customAiSystemPrompt')?.value || defaults.systemPrompt,
+    userPromptTemplate: $('customAiUserPromptTemplate')?.value || defaults.userPromptTemplate,
+    temperature: Number($('customAiTemperature')?.value),
+    maxTextLength: Number($('customAiMaxTextLength')?.value),
+    maxOutputTokens: Number($('customAiMaxOutputTokens')?.value)
+  });
+}
+
+function toggleCustomAiKeyVisibility() {
+  const input = $('customAiApiKey');
+  if (!input) return;
+  input.type = $('customAiShowKey')?.checked ? 'text' : 'password';
+}
+
+async function testCustomAiProvider() {
+  const output = $('customAiTestResult');
+  if (output) { output.hidden = false; output.textContent = 'Testing Custom AI Provider…'; }
+  await saveSettings({ quiet: true });
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'DICTFLOAT_CUSTOM_AI_TEST', text: 'DictFloat reads selected English text and returns Chinese translation or analysis.' });
+    if (!response?.ok) throw new Error(response?.error || 'Custom AI test failed.');
+    if (output) output.textContent = String(response.data?.translation || '').trim() || 'Custom AI responded successfully.';
+    status('Custom AI Provider test completed.');
+  } catch (error) {
+    if (output) output.textContent = `Test failed: ${String(error?.message || error)}`;
+    status('Custom AI Provider test failed.');
+  }
+}
+
+async function saveSettings(options = {}) {
   const settings = {
     selectionMode: $('selectionMode').value,
     fontSize: clamp(Number($('fontSize').value), 10, 15, 12),
@@ -151,13 +245,15 @@ async function saveSettings() {
     onlineLookup: $('onlineLookup').checked,
     accent: $('accent').value,
     translationProviders: readTranslationProviderSettings(),
+    customAiProvider: readCustomAiProviderSettings(),
     themeLockedByUser: true
   };
   $('fontSize').value = settings.fontSize;
   $('panelWidth').value = settings.panelWidth;
-  await chrome.storage.local.set({ dictFloatSettings: settings });
+  const secret = { apiKey: String($('customAiApiKey')?.value || '').trim() };
+  await chrome.storage.local.set({ dictFloatSettings: settings, dictFloatCustomAiSecret: secret });
   applyAccent(settings.accent);
-  status('Saved. Open windows update immediately.');
+  if (!options.quiet) status('Saved. Open windows update immediately.');
 }
 
 async function resetWindowPosition() {

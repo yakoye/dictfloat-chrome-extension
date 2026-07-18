@@ -54,6 +54,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
+  if (message?.type === 'DICTFLOAT_CUSTOM_AI_TRANSLATE') {
+    translateWithCustomAi(String(message.text || ''))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+  if (message?.type === 'DICTFLOAT_CUSTOM_AI_TEST') {
+    translateWithCustomAi(String(message.text || 'DictFloat is a compact floating dictionary for reading English webpages.'))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
   if (message?.type === 'DICTFLOAT_WUDAO_RESET') {
     wudaoIndexCache.clear();
     sendResponse({ ok: true });
@@ -143,7 +155,21 @@ function defaultSettings() {
     theme: 'system',
     onlineLookup: true,
     accent: 'green',
-    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false }
+    translationProviders: { chrome: true, youdao: false, baidu: false, doubao: false, customAi: false },
+    customAiProvider: defaultCustomAiProvider()
+  };
+}
+
+function defaultCustomAiProvider() {
+  return {
+    providerName: 'Custom AI',
+    apiUrl: '',
+    model: '',
+    systemPrompt: '你是专业资深英语全能解析智能体。你必须严格按照指定流程解析用户输入的英文内容。输出使用中文，不闲聊，不省略核心内容。',
+    userPromptTemplate: '请解析下面英文内容：\n\n{{text}}',
+    temperature: 0.2,
+    maxTextLength: 6000,
+    maxOutputTokens: 4000
   };
 }
 
@@ -377,14 +403,6 @@ function needsBridgeNavigation(tab, config) {
   return config.requiredPattern && !config.requiredPattern.test(url);
 }
 
-async function restoreSourceTab(sourceTabId) {
-  if (!sourceTabId) return;
-  const tab = await chrome.tabs.get(sourceTabId).catch(() => null);
-  if (!tab?.id) return;
-  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
-  if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
-}
-
 async function sendBridgeRequest(tabId, message, config, sourceTabId = null) {
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -446,6 +464,115 @@ async function injectBridgeScript(tabId) {
     }
   }
   throw new Error(`Unable to inject bridge script: ${String(lastError?.message || lastError || 'unknown error')}`);
+}
+
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible Custom AI Provider
+// API Key is stored separately in dictFloatCustomAiSecret and is deliberately
+// excluded from normal backup/export lists.
+// ---------------------------------------------------------------------------
+
+async function translateWithCustomAi(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) throw new Error('No text to analyze.');
+  const data = await chrome.storage.local.get(['dictFloatSettings', 'dictFloatCustomAiSecret']);
+  const settings = normalizeBackgroundSettings(data.dictFloatSettings);
+  const config = settings.customAiProvider;
+  const secret = data.dictFloatCustomAiSecret && typeof data.dictFloatCustomAiSecret === 'object' ? data.dictFloatCustomAiSecret : {};
+  const apiKey = String(secret.apiKey || '').trim();
+  if (!settings.translationProviders.customAi) throw new Error('Custom AI Provider is disabled in Settings.');
+  if (!apiKey) throw new Error('Custom AI API Key is empty.');
+  if (!config.apiUrl) throw new Error('Custom AI API URL is empty.');
+  if (!config.model) throw new Error('Custom AI model is empty.');
+  if (text.length > config.maxTextLength) throw new Error(`Selected text is longer than Custom AI Max Text Length (${config.maxTextLength}).`);
+
+  const endpoint = normalizeCustomAiEndpoint(config.apiUrl);
+  const userPrompt = String(config.userPromptTemplate || defaultCustomAiProvider().userPromptTemplate).includes('{{text}}')
+    ? String(config.userPromptTemplate || '').replaceAll('{{text}}', text)
+    : `${String(config.userPromptTemplate || '').trim()}\n\n${text}`.trim();
+  const messages = [
+    { role: 'system', content: String(config.systemPrompt || defaultCustomAiProvider().systemPrompt) },
+    { role: 'user', content: userPrompt }
+  ];
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages,
+      temperature: config.temperature,
+      max_tokens: config.maxOutputTokens
+    })
+  });
+  const bodyText = await response.text();
+  let body = null;
+  try { body = bodyText ? JSON.parse(bodyText) : null; } catch (_) { body = null; }
+  if (!response.ok) {
+    const detail = body?.error?.message || body?.message || bodyText.slice(0, 240) || response.statusText;
+    throw new Error(`Custom AI request failed (${response.status}): ${detail}`);
+  }
+  const content = extractOpenAiCompatibleContent(body).trim();
+  if (!content) throw new Error('Custom AI returned an empty response.');
+  return { translation: content, provider: config.providerName || 'Custom AI', sourceText: text };
+}
+
+function normalizeCustomAiEndpoint(input) {
+  const raw = String(input || '').trim();
+  if (!/^https?:\/\//i.test(raw)) throw new Error('Custom AI API URL must start with http:// or https://');
+  const cleaned = raw.replace(/\/+$/, '');
+  return /\/chat\/completions$/i.test(cleaned) ? cleaned : `${cleaned}/chat/completions`;
+}
+
+function extractOpenAiCompatibleContent(body) {
+  const choice = Array.isArray(body?.choices) ? body.choices[0] : null;
+  const messageContent = choice?.message?.content;
+  if (Array.isArray(messageContent)) {
+    return messageContent.map((part) => part?.text || part?.content || '').join('');
+  }
+  if (typeof messageContent === 'string') return messageContent;
+  if (typeof choice?.text === 'string') return choice.text;
+  if (typeof body?.output_text === 'string') return body.output_text;
+  return '';
+}
+
+function normalizeBackgroundSettings(input) {
+  const raw = input && typeof input === 'object' ? input : {};
+  const providers = raw.translationProviders && typeof raw.translationProviders === 'object' ? raw.translationProviders : {};
+  return {
+    ...defaultSettings(),
+    ...raw,
+    translationProviders: {
+      chrome: providers.chrome !== false,
+      youdao: providers.youdao === true,
+      baidu: providers.baidu === true,
+      doubao: providers.doubao === true,
+      customAi: providers.customAi === true
+    },
+    customAiProvider: normalizeBackgroundCustomAiProvider(raw.customAiProvider)
+  };
+}
+
+function normalizeBackgroundCustomAiProvider(input) {
+  const defaults = defaultCustomAiProvider();
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    providerName: String(value.providerName || defaults.providerName).trim() || defaults.providerName,
+    apiUrl: String(value.apiUrl || '').trim(),
+    model: String(value.model || '').trim(),
+    systemPrompt: String(value.systemPrompt || defaults.systemPrompt),
+    userPromptTemplate: String(value.userPromptTemplate || defaults.userPromptTemplate),
+    temperature: clampNumber(Number(value.temperature), 0, 2, defaults.temperature),
+    maxTextLength: clampNumber(Number(value.maxTextLength), 100, 30000, defaults.maxTextLength),
+    maxOutputTokens: clampNumber(Number(value.maxOutputTokens), 128, 16000, defaults.maxOutputTokens)
+  };
+}
+
+function clampNumber(value, min, max, fallback) {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 
